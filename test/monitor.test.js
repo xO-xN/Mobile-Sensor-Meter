@@ -1,7 +1,9 @@
 // Monitor page rendering: devices keyed by the stable id, every
 // freshness/permission vocabulary rendered distinctly, values with
-// units, nulls as "unavailable", and the QR/address carrying the
-// resolved performer URL.
+// units, nulls as "unavailable", frame-rate smoothing toward the newest
+// sample (no display-rate counters anywhere), disconnected devices
+// leaving the roster after a grace window, and the QR/address carrying
+// the resolved performer URL.
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -26,6 +28,7 @@ class Element {
 function loadMonitorPage() {
   const elements = new Map();
   const handlers = {};
+  const rafQueue = [];
 
   const socket = {
     on(event, fn) {
@@ -38,6 +41,12 @@ function loadMonitorPage() {
     console,
     location: { hostname: "localhost", search: "", port: "6869" },
     addEventListener() {},
+    // The display leg's pacing: queued (never run automatically), so a
+    // test pumps frames with explicit timestamps.
+    requestAnimationFrame: (fn) => {
+      rafQueue.push(fn);
+      return rafQueue.length;
+    },
     document: {
       getElementById(id) {
         if (!elements.has(id)) {
@@ -68,7 +77,18 @@ function loadMonitorPage() {
     );
   }
 
-  return { sandbox, elements, handlers };
+  return {
+    sandbox,
+    elements,
+    handlers,
+    // Runs one generation of scheduled frames at the given timestamp;
+    // the loop re-schedules itself, so the next pump is another frame.
+    pump(nowMs) {
+      for (const fn of rafQueue.splice(0)) {
+        fn(nowMs);
+      }
+    },
+  };
 }
 
 function deviceEntry(overrides = {}) {
@@ -224,9 +244,6 @@ test("values render with units; nulls render unavailable; zeros stay zeros", () 
 
   const html = page.elements.get("devices").innerHTML;
 
-  // Seq correspondence: the exact sample number travels to the monitor.
-  assert.match(html, /#42/);
-  assert.match(html, /#7/);
   // Units on real numbers.
   assert.match(html, /12\.5 °/);
   assert.match(html, /0\.0 °/);
@@ -236,6 +253,85 @@ test("values render with units; nulls render unavailable; zeros stay zeros", () 
   assert.match(html, /incl\. gravity/);
   // Missing fields are words, never zeros.
   assert.match(html, /unavailable/);
+});
+
+test("values glide at frame rate toward the newest sample — never a jump", () => {
+  const page = loadMonitorPage();
+
+  const entryWith = (alpha, seq, at) =>
+    deviceEntry({
+      sensors: {
+        tilt: {
+          ...deviceEntry().sensors.tilt,
+          sample: { seq, at, tilt: { alpha, beta: 0, gamma: 0 } },
+        },
+        motion: deviceEntry().sensors.motion,
+      },
+    });
+
+  page.handlers.state({
+    sensors: {
+      at: 5000,
+      staleAfterMs: 2000,
+      devices: { 1: entryWith(0, 1, 4900) },
+    },
+  });
+
+  // The α row's number, parsed out of the values block the frame loop
+  // rewrites.
+  const alphaRow = () => {
+    const match = page.sandbox.document
+      .getElementById("values-1-tilt")
+      .innerHTML.match(/label">α<\/span><span class="value">(-?[\d.]+) °/);
+    assert.ok(match, "the α row must render");
+    return Number(match[1]);
+  };
+
+  // The rebuild paints the newest sample directly (no glide from zero).
+  assert.equal(alphaRow(), 0);
+
+  // A newer sample lands (same shape — the card is not rebuilt): the
+  // first frame moves TOWARD it without reaching it. (90° apart: an
+  // unambiguous shortest path — exactly 180° would be a coin flip.)
+  page.handlers.state({
+    sensors: {
+      at: 5000,
+      staleAfterMs: 2000,
+      devices: { 1: entryWith(90, 2, 4950) },
+    },
+  });
+  page.pump(1000);
+  const gliding = alphaRow();
+  assert.ok(gliding > 0 && gliding < 90, `gliding, not jumping: ${gliding}`);
+
+  // Frame after frame it converges — the 30 Hz wire reads continuous.
+  for (let t = 1016; t <= 3000; t += 16) {
+    page.pump(t);
+  }
+  assert.ok(alphaRow() > 89.9, `converged: ${alphaRow()}`);
+});
+
+test("a disconnected device stays through a blip and leaves after the grace window", () => {
+  const page = loadMonitorPage();
+  const now = 20000;
+
+  page.handlers.state({
+    sensors: {
+      at: now,
+      staleAfterMs: 2000,
+      devices: {
+        // Dropped 2 s ago: a blip — the card stays (no flicker).
+        1: deviceEntry({ id: 1, connected: false, since: now - 2000 }),
+        // Dropped 30 s ago: a ghost join — gone from the roster.
+        2: deviceEntry({ id: 2, connected: false, since: now - 30000 }),
+      },
+    },
+  });
+
+  const html = page.elements.get("devices").innerHTML;
+  assert.match(html, /data-device="1"/);
+  assert.doesNotMatch(html, /data-device="2"/);
+  assert.equal(page.elements.get("empty").textContent, "");
 });
 
 test("an empty roster points at the QR", () => {

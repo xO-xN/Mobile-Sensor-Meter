@@ -1,7 +1,7 @@
 // Performer page wiring: the join/token flow, the per-sensor enable/stop
 // buttons driving the REAL controller code (loaded with a fake window
 // platform — the "API stand-in" boundary), the phone readout rendering
-// the sample it SENDS (seq + values, unavailable-vs-zero), and the
+// the sample it SENDS (same values, unavailable-vs-zero), and the
 // visibility pause path.
 
 const assert = require("node:assert/strict");
@@ -187,7 +187,6 @@ function loadPerformerPage(options = {}) {
     button: (sensor) => elements.get("btn-" + sensor),
     note: (sensor) => elements.get("note-" + sensor),
     values: (sensor) => elements.get("values-" + sensor),
-    tick: (sensor) => elements.get("tick-" + sensor),
     conn: elements.get("conn-status"),
     device: elements.get("device-label"),
   };
@@ -238,15 +237,11 @@ test("enabling tilt attaches capture, notifies the server, and renders the sent 
   assert.equal(sample[1].seq, 1);
   assert.equal(sample[1].tilt.alpha, 12.5);
 
-  // The readout binds to the SENT sample: seq and values agree.
-  assert.match(page.values("tilt").innerHTML, /#1/);
+  // The readout binds to the SENT sample — the same values, no rate
+  // counters anywhere on the page.
   assert.match(page.values("tilt").innerHTML, /12\.5/);
-
-  // The DISPLAY leg is alive too: the capture tick counts processed
-  // samples at its own (faster) cadence — proof the sensor works
-  // between sends (spec #142: capture, display and send are separately
-  // rate-limited, and the page uses all three).
-  assert.match(page.tick("tilt").textContent, /^·\d+$/);
+  assert.doesNotMatch(page.values("tilt").innerHTML, /·/);
+  assert.equal(page.elements.get("tick-tilt"), undefined);
 });
 
 test("null fields render unavailable; legal zeros render as numbers", () => {

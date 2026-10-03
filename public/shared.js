@@ -108,7 +108,6 @@
           withoutGravity: "user accel only",
           intensity: "Intensity",
           shake: "Shakes",
-          seq: "sample #",
           unavailable: "unavailable",
           permissionDenied: "Permission denied — enable in browser settings",
           permissionAsk: "Tap Enable to grant sensor access",
@@ -129,7 +128,6 @@
           device: "Device ",
           tilt: "Tilt",
           motion: "Motion",
-          seq: "sample #",
           freshness: "Data",
           freshnessWord: {
             waiting: "waiting for samples",
@@ -172,7 +170,6 @@
           withoutGravity: "仅用户加速度",
           intensity: "运动强度",
           shake: "摇动次数",
-          seq: "样本 #",
           unavailable: "不可用",
           permissionDenied: "权限被拒绝 — 请在浏览器设置中允许",
           permissionAsk: "点「启用」授予传感器权限",
@@ -193,7 +190,6 @@
           device: "设备 ",
           tilt: "倾斜",
           motion: "运动",
-          seq: "样本 #",
           freshness: "数据",
           freshnessWord: {
             waiting: "等待样本",

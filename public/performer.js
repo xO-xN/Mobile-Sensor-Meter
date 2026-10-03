@@ -4,11 +4,10 @@
 // user's explicit Enable/Stop pair — iOS requires the permission
 // request to happen inside a user gesture, so capture NEVER starts on
 // its own. The value readout binds to the SEND path (the exact sample
-// that goes on the wire is the sample the phone displays, seq
-// included), so what the operator sees on the monitor and what the
-// holder sees are the same facts; the DISPLAY path (10 Hz, faster than
-// sends) drives the per-sensor capture tick — proof the sensor is
-// alive between sends.
+// that goes on the wire is the sample the phone displays), so what the
+// operator sees on the monitor and what the holder sees are the same
+// facts. No rate counters anywhere — the monitor renders at frame rate,
+// smoothing toward the newest sample; smoothness is the deliverable.
 //
 // The page connects SAME-ORIGIN (io() with no URL): over plain HTTP
 // that is the performer port; under the App's trusted-HTTPS entry it
@@ -43,7 +42,7 @@ function sensorCardHtml(sensor) {
   return (
     '<div class="card" id="card-' + sensor + '">' +
     '<div class="sensor-head">' +
-    "<h2>" + title + ' <span class="tick" id="tick-' + sensor + '"></span></h2>' +
+    "<h2>" + title + "</h2>" +
     '<button id="btn-' + sensor + '">' + T.enable + "</button>" +
     "</div>" +
     '<p class="sensor-note" id="note-' + sensor + '"></p>' +
@@ -65,7 +64,6 @@ function sensorEls(sensor) {
     button: document.getElementById("btn-" + sensor),
     note: document.getElementById("note-" + sensor),
     values: document.getElementById("values-" + sensor),
-    tick: document.getElementById("tick-" + sensor),
   };
 }
 
@@ -116,7 +114,6 @@ const heartbeatTimer = setInterval(() => {
 // ------------------------------------------------------------ sensors
 
 const lastShown = { tilt: null, motion: null };
-const tickCounts = { tilt: 0, motion: 0 };
 
 const controller = new S.SensorController(
   {
@@ -139,13 +136,6 @@ const controller = new S.SensorController(
     onPermission: (sensor, permission) => {
       socket.emit(P.events.sensorPermission, { sensor, permission });
       renderStates();
-    },
-    // The DISPLAY leg of the rate ladder (≤10 Hz — faster than sends):
-    // a processed-sample counter proving capture is alive between the
-    // 5 Hz sends.
-    onSample: (sensor) => {
-      tickCounts[sensor] += 1;
-      els[sensor].tick.textContent = "·" + tickCounts[sensor];
     },
     onSend: (sensor, sample, seq) => {
       if (deviceId !== null) {
@@ -256,20 +246,19 @@ function renderSensorState(sensor) {
   }
 
   if (state === "on" && lastShown[sensor] === null) {
-    els[sensor].values.innerHTML =
-      R.row(T.seq, R.naSpan(T.noData));
+    els[sensor].values.innerHTML = R.naSpan(T.noData);
   }
 }
 
 function renderSample(sensor, sample, seq) {
   lastShown[sensor] = { sample, seq };
 
-  let html = R.seqRow(seq, T);
+  let html;
 
   if (sensor === "tilt") {
-    html += R.tiltRows(sample, T);
+    html = R.tiltRows(sample, T);
   } else {
-    html += R.motionRows(sample, T);
+    html = R.motionRows(sample, T);
   }
 
   els[sensor].values.innerHTML = html;

@@ -5,17 +5,22 @@
 // this exact code with fake event sources, fake permission requesters and
 // a fake clock — what the tests prove is what the phone runs).
 //
-// Layers, each independently rate-limited (spec #142: capture, display
-// and send throttle SEPARATELY, and only the latest processed sample
-// ever goes on the wire):
+// Layers (spec #142: only the latest processed sample ever goes on the
+// wire, so a disconnect never replays history):
 //
-//   raw events ──capture gate (≤30 Hz)──▶ MotionProcessor / tilt sanitize
+//   raw events ──capture gate (≤60 Hz)──▶ MotionProcessor / tilt sanitize
 //             ──seq++──▶ latest processed sample
-//             ──display gate (≤10 Hz)──▶ onSample (live UI)
-//             ──send gate (≤5 Hz)──▶ onSend (wire + the phone's own
+//             ──send gate (≤30 Hz)──▶ onSend (wire + the phone's own
 //                                    value readout — the sample the
 //                                    phone DISPLAYS is the sample the
 //                                    monitor RECEIVES, seq included)
+//
+// There is deliberately no third "display" gate on the phone: the
+// 30 Hz send path IS the phone's readout rate, and the monitor renders
+// at frame rate, exponentially smoothing toward the newest sample —
+// the SuperCollider control-rate idea (compute at a low rate, present
+// continuously). Rate counters are not shown anywhere; smoothness is
+// the deliverable, not telemetry about it.
 //
 // Guards the spec demands and this module enforces:
 // - Zero is a valid reading; null is "field not provided". They are
@@ -37,10 +42,12 @@
   const MOTION = "motion";
   const SENSOR_IDS = [TILT, MOTION];
 
-  // Rate limits (ms between passes).
-  const CAPTURE_MIN_INTERVAL_MS = 33; // ~30 Hz
-  const DISPLAY_MIN_INTERVAL_MS = 100; // 10 Hz
-  const SEND_MIN_INTERVAL_MS = 200; // 5 Hz
+  // Rate limits (ms between passes). Capture passes the full device
+  // cadence (~60 Hz on iOS); the wire carries every other processed
+  // sample (~30 Hz) — enough for the monitor's frame-rate smoothing to
+  // read as continuous motion.
+  const CAPTURE_MIN_INTERVAL_MS = 16; // ~60 Hz
+  const SEND_MIN_INTERVAL_MS = 33; // ~30 Hz
 
   // Motion processing tuning. Shake: a user-acceleration magnitude above
   // SHAKE_THRESHOLD_MS2 (m/s²; ~1.5 g over Earth gravity) counts once,
@@ -222,11 +229,10 @@
   //   onState(sensor, state)          — capture-state changes
   //   onPermission(sensor, permission)— a permission fact (denied,
   //                                     unsupported, late results)
-  //   onStart(sensor) / onStop(sensor, lastSample) — capture went live /
-  //                                     ended (server notifications)
-  //   onSample(sensor, sample, seq)   — display-gated latest values
-  //   onSend(sensor, sample, seq)     — send-gated latest values (the
-  //                                     phone's readout rides this too)
+//   onStart(sensor) / onStop(sensor, lastSample) — capture went live /
+//                                     ended (server notifications)
+//   onSend(sensor, sample, seq)     — send-gated latest values (the
+//                                     phone's readout rides this too)
   class SensorController {
     constructor(platform, callbacks = {}) {
       this.platform = platform;
@@ -373,7 +379,6 @@
       // after a stop must not inherit the old capture's throttle
       // watermarks and lose its first samples to them.
       record.captureGate = makeGate(CAPTURE_MIN_INTERVAL_MS);
-      record.displayGate = makeGate(DISPLAY_MIN_INTERVAL_MS);
       record.sendGate = makeGate(SEND_MIN_INTERVAL_MS);
       this.platform.addEventListener(record.eventType, record.handler);
 
@@ -422,10 +427,6 @@
       record.seq += 1;
       record.lastSample = sample;
 
-      if (record.displayGate(now)) {
-        this.emit("onSample", sensor, sample, record.seq);
-      }
-
       if (record.sendGate(now)) {
         // Only the LATEST processed sample ever goes out — nothing is
         // queued between sends, so a reconnect cannot replay history.
@@ -454,7 +455,6 @@
       lastSample: null,
       eventType: sensor === TILT ? "deviceorientation" : "devicemotion",
       captureGate: makeGate(CAPTURE_MIN_INTERVAL_MS),
-      displayGate: makeGate(DISPLAY_MIN_INTERVAL_MS),
       sendGate: makeGate(SEND_MIN_INTERVAL_MS),
     };
   }
@@ -527,7 +527,6 @@
     TILT,
     MOTION,
     CAPTURE_MIN_INTERVAL_MS,
-    DISPLAY_MIN_INTERVAL_MS,
     SEND_MIN_INTERVAL_MS,
     SHAKE_THRESHOLD_MS2,
     SHAKE_COOLDOWN_MS,

@@ -270,7 +270,9 @@ io.on("connection", (socket) => {
   // The sample path: newest processed values only. Late results
   // (stopped captures) and replays are rejected inside the hub without
   // touching state; accepted samples broadcast at wire rate (the phone
-  // already limits sending, so this stays single-digit Hz per device).
+  // limits sending to ~30 Hz per device; the monitor's frame loop
+  // smooths the stream, so the broadcast cadence is not a display
+  // rate).
   socket.on(EVENTS.sensorSample, (payload) => {
     const id = registry.findIdBySocket(socket.id);
     if (id === null || !payload || typeof payload.sensor !== "string") {

@@ -1,8 +1,9 @@
 // The browser-side sensor logic (public/sensor-logic.js) driven through
 // API stand-ins: fake permission requesters, fake event sources and a
 // fake clock. These tests prove the exact rules the phone enforces —
-// zero vs missing, shake counting, the three independent rate limits,
-// latest-only sends, late-event and late-permission guards, pause.
+// zero vs missing, shake counting, the independent capture/send rate
+// limits, latest-only sends, late-event and late-permission guards,
+// pause.
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
@@ -331,32 +332,28 @@ test("a paused controller processes and sends nothing", () => {
   assert.equal(sends.length, 1);
 });
 
-test("capture, display and send limit independently; only the latest sample is sent", () => {
+test("capture and send limit independently; only the latest sample is sent", () => {
   let clock = 0;
   const platform = makePlatform({
     orientationEvent: function DeviceOrientationEvent() {},
     now: () => clock,
   });
-  const displayed = [];
   const sends = [];
   const controller = new S.SensorController(platform, {
-    onSample: (sensor, sample, seq) => displayed.push(seq),
     onSend: (sensor, sample, seq) => sends.push([sample.alpha, seq]),
   });
 
   controller.start("tilt");
 
-  // 120 device events at 16 ms apart (~2 s of 60 Hz device cadence).
+  // 120 device events 16 ms apart (~2 s of 60 Hz device cadence).
   for (let i = 1; i <= 120; i += 1) {
     clock = i * 16;
     platform.fire("deviceorientation", { alpha: i, beta: 0, gamma: 0 });
   }
 
-  // Capture gate (~30 Hz): about half of the 120 events become samples.
-  // Display gate (10 Hz): ~20 of them. Send gate (5 Hz): ~10.
-  assert.ok(displayed.length > 12 && displayed.length < 30, `display ${displayed.length}`);
-  assert.ok(sends.length >= 8 && sends.length <= 13, `send ${sends.length}`);
-  assert.ok(sends.length < displayed.length);
+  // Capture gate (~60 Hz): every event becomes a processed sample. Send
+  // gate (~30 Hz): the watermark passes every 48 ms here — 40 sends.
+  assert.equal(sends.length, 40, `send ${sends.length}`);
 
   // Every send carries the LATEST processed sample at its moment —
   // here the last send must carry a high alpha, never an old one, and

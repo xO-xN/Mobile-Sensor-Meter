@@ -16,10 +16,11 @@ Adapted to the App's trusted-HTTPS entry contract (`scoreServer.supportsPerforme
 
 - **Tilt**: the α / β / γ angles the browser actually provides, in degrees, as provided — not a calibrated compass bearing. Missing fields read "unavailable", never 0°.
 - **Motion**: the acceleration the browser provides (X/Y/Z, m/s²) with an explicit **incl. gravity / user-accel-only** flag, a motion-intensity magnitude (m/s², smoothed), and a **shake counter** (a threshold crossing with a cooldown — one shake is one).
-- **The phone shows what the monitor receives**: the readout on the phone binds to the sample it SENDS — same seq number, same values. A reconnect (same origin, same claim token) recovers the same device id; data never crosses devices.
+- **The phone shows what the monitor receives**: the readout on the phone binds to the sample it SENDS — the same values. A reconnect (same origin, same claim token) recovers the same device id; data never crosses devices.
 - **Honest freshness**: "live" derives from actual sample timestamps only. A heartbeat can never dress stale data as live; a backgrounded page reads "paused"; a sensor that stopped updating reads "stopped updating"; authorized-but-sampleless reads "waiting for samples".
 - **Deliberate capture**: each sensor is enabled by an explicit tap (iOS requires the permission prompt inside a user gesture) and has an explicit stop. Late permission results and late sensor events after a stop never restart or mutate a stopped capture.
-- **Bounded rates**: capture ≤30 Hz, display 10 Hz, send 5 Hz — three independent limits; only the latest processed sample is ever sent, so a disconnect never replays history.
+- **Bounded rates, fluid display**: capture ≤60 Hz and send ≤30 Hz — two independent gates; only the latest processed sample is ever sent, so a disconnect never replays history. The monitor renders at frame rate (`requestAnimationFrame`), each value exponentially approaching the newest sample — the SuperCollider control-rate idea: low-rate computation, continuous presentation. No rate counters are shown anywhere.
+- **No ghost devices**: a device that disconnects stays on the monitor for a short grace window (a network blip must not flicker its card), then leaves the roster — a stray tab or link preview that joined once never sits there forever. Identity is unaffected: the returning phone recovers its device id.
 
 ### Units, permissions and states (the short manual)
 
@@ -32,7 +33,7 @@ Adapted to the App's trusted-HTTPS entry contract (`scoreServer.supportsPerforme
 
 Permissions: on iOS 13+ each sensor asks once per origin inside the Enable tap — "granted", "denied", "unsupported" and "not asked" all render distinctly on the monitor. Denial is a diagnosable result, not an error.
 
-Device states on the monitor: `live` / `waiting for samples` / `stopped updating` / `paused` / `off` / `disconnected` — per sensor, plus the permission chip.
+Device states on the monitor: `live` / `waiting for samples` / `stopped updating` / `paused` / `off` / `disconnected` — per sensor, plus the permission chip. A disconnected device's card leaves the roster after a 10 s grace window.
 
 ### Getting Started
 
@@ -107,10 +108,11 @@ PNDS 诊断工程：检验手机浏览器提供的两个运动传感器——**�
 
 - **倾斜**：浏览器实际提供的 α / β / γ 角度（度），照原样显示——不是校准过的罗盘方向；缺失字段显示「不可用」，绝不补 0°。
 - **运动**：浏览器提供的加速度 XYZ（m/s²）+ 明确的**含重力 / 仅用户加速度**标志、运动强度（m/s²，平滑）、**摇动计数**（阈值 + 冷却，摇一下计一下）。
-- **手机显示的就是 monitor 收到的**：手机读数绑定它**发送**的那个样本——序号相同、数值相同。断线重连（同 origin、同 claim token）恢复同一设备号，数据不串设备。
+- **手机显示的就是 monitor 收到的**：手机读数绑定它**发送**的那个样本——数值完全相同。断线重连（同 origin、同 claim token）恢复同一设备号，数据不串设备。
 - **诚实的新鲜度**：「实时」只由真实样本时间戳决定——心跳冒充不了新样本；页面后台显示「已暂停」；停止更新显示「已停止更新」；授权了但没样本显示「等待样本」。
 - **主动采集**：每个传感器由用户点击启用（iOS 要求权限弹窗在用户手势内触发）、显式停止；停止后的迟到授权结果与迟到事件不会重启或改写已停止的采集。
-- **限频有界**：采集 ≤30 Hz、显示 10 Hz、发送 5 Hz 三级独立限频；只发送最新处理值，断线不重放历史。
+- **限频有界、显示流畅**：采集 ≤60 Hz、发送 ≤30 Hz 两级独立限频；只发送最新处理值，断线不重放历史。monitor 以帧率（`requestAnimationFrame`）渲染，每个数值向最新样本指数逼近——SuperCollider control rate 的思路：低速率计算、连续呈现。页面各处不显示任何速率计数。
+- **不留幽灵设备**：设备断开后卡片保留一个短暂宽限期（网络抖动不闪烁），随后从名册消失——误入的标签页或链接预览不会永远占着控制台。身份不受影响：回来的手机恢复原设备号。
 
 ### 单位、权限与状态（速查）
 
@@ -123,7 +125,7 @@ PNDS 诊断工程：检验手机浏览器提供的两个运动传感器——**�
 
 权限：iOS 13+ 每个 sensor 每个 origin 在「启用」点击时询问一次；「已授权 / 被拒绝 / 不支持 / 未询问」在 monitor 上分别显示——拒绝是可诊断的结果，不是错误。
 
-设备状态：`实时 / 等待样本 / 已停止更新 / 已暂停 / 未采集 / 已断开`（每传感器一列）+ 权限标志。
+设备状态：`实时 / 等待样本 / 已停止更新 / 已暂停 / 未采集 / 已断开`（每传感器一列）+ 权限标志。已断开设备的卡片在 10 秒宽限期后从名册消失。
 
 ### 快速开始
 

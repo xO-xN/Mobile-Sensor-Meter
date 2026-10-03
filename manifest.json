@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "mobile-sensor-diagnostics",
+  "name": "Mobile Sensor Diagnostics",
+  "version": "0.1.0",
+  "description": "PNDS score project for mobile sensor diagnostics: phones actively capture tilt and motion on-device and stream the processed values to the monitor over Socket.IO.",
+  "scoreServer": {
+    "entry": "server.js",
+    "workingDirectory": ".",
+    "performerPort": 6868,
+    "monitorPort": 6869,
+    "supportsPerformerUrl": true
+  },
+  "audio": {
+    "defaultMode": "none",
+    "supportedModes": [
+      "none"
+    ]
+  }
+}

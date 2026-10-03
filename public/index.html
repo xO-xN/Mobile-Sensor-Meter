@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mobile Sensor Diagnostics</title>
+    <link rel="stylesheet" type="text/css" href="style.css" />
+    <script src="__config.js"></script>
+    <script src="shared.js"></script>
+    <script src="render.js"></script>
+    <script>
+      // Single page, two roles — decided by WHICH SERVER SERVED IT
+      // (__config.js role, runtime-contract §15), never by a port
+      // comparison: under the App's HTTPS entry the browser sees the
+      // entry's port, not the manifest's.
+      window.PNDS_IS_MONITOR = window.PNDS.role === "monitor";
+
+      // Socket.IO client loading, per role (no CDN: performances and
+      // trials run offline):
+      // - performer: SAME ORIGIN. Over plain HTTP that is the performer
+      //   port; under the App's trusted-HTTPS entry it is the entry
+      //   origin — the page code never branches on which it is (#138).
+      // - monitor: the monitor page stays INTERNAL (§15) — it is only
+      //   ever served over plain HTTP on the monitor port and reaches
+      //   the performer server cross-port.
+      if (window.PNDS_IS_MONITOR) {
+        document.write(
+          '\x3Cscript src="http://' +
+            location.hostname +
+            ":" +
+            window.PNDS.performerPort +
+            '/socket.io/socket.io.js"\x3E\x3C/script\x3E',
+        );
+      } else {
+        document.write('\x3Cscript src="/socket.io/socket.io.js"\x3E\x3C/script\x3E');
+      }
+    </script>
+  </head>
+
+  <body>
+    <main id="app"></main>
+
+    <script>
+      if (window.PNDS_IS_MONITOR) {
+        // locale.js: the monitor follows the App's language push; the
+        // performer branch uses its pickLocale() on the device language.
+        document.write('\x3Cscript src="locale.js"\x3E\x3C/script\x3E');
+        document.write('\x3Cscript src="monitor.js"\x3E\x3C/script\x3E');
+      } else {
+        // sensor-logic.js is the performer page's capture layer; the
+        // monitor never runs it.
+        document.write('\x3Cscript src="sensor-logic.js"\x3E\x3C/script\x3E');
+        document.write('\x3Cscript src="locale.js"\x3E\x3C/script\x3E');
+        document.write('\x3Cscript src="performer.js"\x3E\x3C/script\x3E');
+      }
+    </script>
+  </body>
+</html>

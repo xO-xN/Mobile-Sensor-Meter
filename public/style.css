@@ -1,0 +1,249 @@
+/* Mobile Sensor Diagnostics — both pages.
+ *
+ * Plain DOM, no p5. Light theme, centered flex column, one card per
+ * sensor (performer) / per device (monitor); values are the content —
+ * large tabular numerals, states color-coded, "unavailable" rendered
+ * as a word, never as a number.
+ */
+
+:root {
+  --bg: #f4f5fa;
+  --card: #ffffff;
+  --text: #1c1e2b;
+  --muted: #8a8fa3;
+  --accent: #5a4ff3;
+  --accent-soft: #e8eafd;
+  --danger: #e11d48;
+  --track: #e8ebf7;
+  --green: #16a34a;
+  --green-soft: #e7f6ec;
+  --yellow: #d97706;
+  --yellow-soft: #fdf3e3;
+  --red: #e11d48;
+  --red-soft: #fde8ee;
+  --gray: #8a8fa3;
+  --gray-soft: #eef0f6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+
+header {
+  text-align: center;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+.sub {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ---------- shared card chrome ---------- */
+
+.card {
+  background: var(--card);
+  border-radius: 14px;
+  box-shadow: 0 1px 4px rgba(28, 30, 43, 0.08);
+  padding: 14px 16px;
+  width: 100%;
+}
+
+.card h2 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  padding: 2px 0;
+}
+
+.row .label {
+  color: var(--muted);
+}
+
+.value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.value.na {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* ---------- state chips ---------- */
+
+.chip {
+  display: inline-block;
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.chip.live { background: var(--green-soft); color: var(--green); }
+.chip.stale { background: var(--yellow-soft); color: var(--yellow); }
+.chip.paused { background: var(--gray-soft); color: var(--gray); }
+.chip.off { background: var(--gray-soft); color: var(--gray); }
+.chip.waiting { background: var(--accent-soft); color: var(--accent); }
+.chip.disconnected { background: var(--red-soft); color: var(--red); }
+.chip.denied { background: var(--red-soft); color: var(--red); }
+.chip.unsupported { background: var(--red-soft); color: var(--red); }
+.chip.granted { background: var(--green-soft); color: var(--green); }
+.chip.unknown { background: var(--gray-soft); color: var(--gray); }
+.chip.on { background: var(--green-soft); color: var(--green); }
+.chip.starting { background: var(--accent-soft); color: var(--accent); }
+.chip.error { background: var(--red-soft); color: var(--red); }
+
+/* ---------- buttons ---------- */
+
+button {
+  font: inherit;
+  font-size: 13px;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 14px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+button.stop {
+  background: var(--track);
+  color: var(--text);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---------- performer page ---------- */
+
+.perf {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.perf .sensor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sensor-note {
+  color: var(--muted);
+  font-size: 12px;
+  min-height: 16px;
+  margin: 4px 0 6px;
+}
+
+.sensor-note.bad {
+  color: var(--danger);
+}
+
+/* ---------- monitor page ---------- */
+
+.mon {
+  width: 100%;
+  max-width: 960px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.devices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.device .device-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.device .sensor-block {
+  border-top: 1px solid var(--track);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.device .sensor-block h3 {
+  font-size: 12px;
+  margin: 0 0 4px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.qr-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.qr-row img {
+  width: 220px;
+  height: 220px;
+  background: #fff;
+  border-radius: 10px;
+}
+
+.address {
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}

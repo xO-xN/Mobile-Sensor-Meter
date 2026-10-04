@@ -182,6 +182,10 @@ function loadPerformerPage(options = {}) {
     detects: 0,
     handsResult: [],
     detectError: null,
+    // Present when options.tfFake: records the backend calls so tests
+    // can prove the pin happens BEFORE the model is constructed
+    // ("set:webgl" → "ready" → "construct").
+    backendCalls: options.tfFake ? [] : null,
   };
 
   const sandbox = {
@@ -221,6 +225,19 @@ function loadPerformerPage(options = {}) {
     // resolves to the instance (the phone failure). options.ml5Returns
     // = "instance" exercises the plain-constructor shape instead.
     ml5: {
+      // options.tfFake stands in for ml5's exposed tfjs namespace, so a
+      // test can pin the ORDER: backend selection before construction.
+      tf: options.tfFake
+        ? {
+            setBackend: async (name) => {
+              hpHarness.backendCalls.push("set:" + name);
+              return true;
+            },
+            ready: async () => {
+              hpHarness.backendCalls.push("ready");
+            },
+          }
+        : undefined,
       handPose(config) {
         hpHarness.scriptConfigs.push(config);
         const instance = {
@@ -252,6 +269,10 @@ function loadPerformerPage(options = {}) {
 
         if (options.ml5Returns === "garbage") {
           return 42; // neither an instance nor a promise
+        }
+
+        if (hpHarness.backendCalls) {
+          hpHarness.backendCalls.push("construct");
         }
 
         // The REAL 1.4.0 shape with no p5 on the page: a promise that
@@ -568,8 +589,9 @@ const HALF_SCALE_SQUARE = (block) => {
 
 const flushMicrotasks = async () => {
   // Enough turns for the longest page chain: getUserMedia → attach →
-  // loadScript → model.ready → beginLoop, and fetch → json → state.
-  for (let i = 0; i < 6; i += 1) {
+  // loadScript → backend pin → factory await → model.ready →
+  // beginLoop, and fetch → json → state.
+  for (let i = 0; i < 12; i += 1) {
     await Promise.resolve();
   }
 };
@@ -924,6 +946,30 @@ test("the REAL ml5 shape (promisified factory, no p5) runs the full pipeline —
   assert.equal(page.hp.disposedModels, 1);
 });
 
+test("the handpose backend is pinned to webgl BEFORE the model constructs (tfjs's auto-picked webgpu uploads video as blank)", async () => {
+  const page = loadPerformerPage({ tfFake: true });
+  connectAndJoin(page);
+
+  page.button("handpose").dispatch("click");
+  await flushMicrotasks();
+
+  assert.equal(page.scripts.length, 1);
+  page.scripts[0].onload();
+  await flushMicrotasks();
+
+  // The order IS the fix: tf.ready() would auto-pick the WebGPU
+  // backend, whose video upload yields blank frames and zero hands
+  // forever — so the backend must be forced before construction.
+  assert.deepEqual(page.hp.backendCalls, ["set:webgl", "ready", "construct"]);
+
+  // And the pipeline still runs to the end.
+  framesFlow(page);
+  page.hp.handsResult = fakePixelHands();
+  page.pumpIntervals();
+  await flushMicrotasks();
+  assert.ok(page.emitted.find(([e]) => e === "pnds:sensor:sample"));
+});
+
 test("the plain instance shape (ready on the object) also works", async () => {
   const page = loadPerformerPage({ ml5Returns: "instance" });
   connectAndJoin(page);
@@ -952,7 +998,7 @@ test("an ml5 that returns neither shape lands in model-error with the verbatim r
   await flushMicrotasks();
 
   const note = page.note("handpose").textContent;
-  assert.match(note, /neither an instance nor a promise/);
+  assert.match(note, /resolved without a usable instance/);
   assert.notEqual(page.elements.get("hp-video").srcObject, null); // camera kept
 });
 

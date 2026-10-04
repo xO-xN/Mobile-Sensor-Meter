@@ -332,58 +332,57 @@ function loadVendorScript(src) {
 // hand-pose-detection detector has one — release the GPU memory
 // through it when present.
 //
-// ml5 1.4.0 hands back TWO shapes here, and both must work: with no p5
-// on the page (always, for us) its setupP5Integration REPLACES every
-// factory with a promise-returning one — handPose(config) resolves to
-// the instance once the local weights are in. A real instance with a
-// .ready promise is the other shape. (The phone found this the hard
-// way: instance.ready was undefined on the PROMISE, and the note said
-// so once failures spoke their reason.)
+// TWO platform facts meet here, both found on a real phone:
+// - ml5 1.4.0, with no p5 on the page, replaces every factory with a
+//   promise-returning one — handPose(config) resolves to the instance
+//   instead of returning it. This wrapper awaits both shapes.
+// - tf.ready() prefers the WebGPU backend where present, and tfjs
+//   4.22's WebGPU backend uploads VIDEO elements as BLANK textures —
+//   the palm detector then sees black frames and finds no hand,
+//   forever, on every WebGPU browser (reproduced with identical
+//   pixels: webgpu 0 hands, webgl and cpu 1 hand). The backend is
+//   pinned to WebGL — which reads video correctly and exists wherever
+//   this model can run at all — BEFORE the detector's weights load;
+//   CPU is the fallback. Static images were never affected, which is
+//   exactly why every earlier check looked healthy.
 function wrapMl5HandPose(config) {
-  const handed = window.ml5.handPose(config);
-  const thenable = (value) => Boolean(value) && typeof value.then === "function";
+  let real = null;
 
-  if (thenable(handed)) {
-    // The promisified factory. detect/dispose must reach the instance
-    // that only exists after the promise resolves; a stop during the
-    // load still disposes — the controller's late-guard calls
-    // dispose() after ready settles, by which time real is set.
-    let real = null;
+  return {
+    ready: (async () => {
+      const tf = window.ml5 && window.ml5.tf;
 
-    return {
-      ready: handed.then((instance) => {
-        if (!instance || typeof instance.detect !== "function") {
-          throw new Error("ml5 handPose() resolved without a usable instance");
+      if (tf && typeof tf.setBackend === "function") {
+        try {
+          if ((await tf.setBackend("webgl")) === false) {
+            throw new Error("webgl backend unavailable");
+          }
+
+          await tf.ready();
+        } catch {
+          await tf.setBackend("cpu").catch(() => {});
+          await tf.ready();
         }
+      }
 
-        real = instance;
-        return instance;
-      }),
-      detect: (media) => real.detect(media),
-      dispose() {
-        if (real && real.model && typeof real.model.dispose === "function") {
-          real.model.dispose();
-        }
-      },
-    };
-  }
+      const handed = window.ml5.handPose(config);
+      const thenable = (value) => Boolean(value) && typeof value.then === "function";
+      const instance = thenable(handed) ? await handed : handed;
 
-  if (handed && thenable(handed.ready)) {
-    return {
-      ready: handed.ready,
-      detect: (media) => handed.detect(media),
-      dispose() {
-        if (handed.model && typeof handed.model.dispose === "function") {
-          handed.model.dispose();
-        }
-      },
-    };
-  }
+      if (!instance || typeof instance.detect !== "function") {
+        throw new Error("ml5 handPose() resolved without a usable instance");
+      }
 
-  throw new Error(
-    "ml5 handPose() returned neither an instance nor a promise: " +
-      String(handed),
-  );
+      real = instance;
+      return instance;
+    })(),
+    detect: (media) => real.detect(media),
+    dispose() {
+      if (real && real.model && typeof real.model.dispose === "function") {
+        real.model.dispose();
+      }
+    },
+  };
 }
 
 function hpVideo() {

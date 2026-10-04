@@ -14,8 +14,15 @@ const vm = require("node:vm");
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
 
 class Element {
-  constructor() {
-    this.innerHTML = "";
+  constructor(onMarkup) {
+    let markup = "";
+    Object.defineProperty(this, "innerHTML", {
+      get: () => markup,
+      set: (value) => {
+        markup = value;
+        if (onMarkup) onMarkup();
+      },
+    });
     this.textContent = "";
     this.attributes = new Map();
   }
@@ -66,6 +73,7 @@ function loadMonitorPage() {
   const elements = new Map();
   const handlers = {};
   const rafQueue = [];
+  const messages = [];
 
   const socket = {
     on(event, fn) {
@@ -77,7 +85,9 @@ function loadMonitorPage() {
   const sandbox = {
     console,
     location: { hostname: "localhost", search: "", port: "6869" },
-    addEventListener() {},
+    addEventListener(type, fn) {
+      if (type === "message") messages.push(fn);
+    },
     // The display leg's pacing: queued (never run automatically), so a
     // test pumps frames with explicit timestamps.
     requestAnimationFrame: (fn) => {
@@ -85,14 +95,34 @@ function loadMonitorPage() {
       return rafQueue.length;
     },
     document: {
+      activeElement: null,
       getElementById(id) {
         if (!elements.has(id)) {
           elements.set(
             id,
-            id.startsWith("hp-mini-") ? makeFakeCanvas() : new Element(),
+            id.startsWith("hp-mini-")
+              ? makeFakeCanvas()
+              : new Element(
+                  id === "devices"
+                    ? () => {
+                        // Browser innerHTML replacement discards old disclosures.
+                        for (const key of elements.keys())
+                          if (
+                            key.startsWith("kp-toggle-") ||
+                            key.startsWith("kp-summary-")
+                          )
+                            elements.delete(key);
+                      }
+                    : null,
+                ),
           );
         }
-        return elements.get(id);
+        const element = elements.get(id);
+        element.id = id;
+        element.focus = () => {
+          sandbox.document.activeElement = element;
+        };
+        return element;
       },
       documentElement: new Element(),
     },
@@ -121,6 +151,11 @@ function loadMonitorPage() {
     sandbox,
     elements,
     handlers,
+    locale(code) {
+      messages.forEach((fn) =>
+        fn({ data: { type: "pnds:locale", version: 1, locale: code } }),
+      );
+    },
     // Runs one generation of scheduled frames at the given timestamp;
     // the loop re-schedules itself, so the next pump is another frame.
     pump(nowMs) {
@@ -261,7 +296,7 @@ test("every freshness vocabulary renders distinctly — never a number masquerad
     html.indexOf('data-device="2"'),
   );
   assert.match(card1, /waiting for samples/);
-  assert.doesNotMatch(card1, /<h2>Device 1<\/h2>\s*<span class="chip live">/);
+  assert.match(card1, /<span class="chip waiting">waiting for samples<\/span>/);
 });
 
 test("values render with units; nulls render unavailable; zeros stay zeros", () => {
@@ -277,7 +312,11 @@ test("values render with units; nulls render unavailable; zeros stay zeros", () 
             ...deviceEntry().sensors,
             tilt: {
               ...deviceEntry().sensors.tilt,
-              sample: { seq: 42, at: 5000, tilt: { alpha: 12.5, beta: 0, gamma: null } },
+              sample: {
+                seq: 42,
+                at: 5000,
+                tilt: { alpha: 12.5, beta: 0, gamma: null },
+              },
             },
             motion: {
               ...deviceEntry().sensors.motion,
@@ -414,7 +453,9 @@ test("the mic's level glides at frame rate; the sample rate never smooths", () =
   const micHtml = () =>
     page.sandbox.document.getElementById("values-1-mic").innerHTML;
   const levelRow = () => {
-    const match = micHtml().match(/Level<\/span><span class="value">(-?[\d.]+) dBFS/);
+    const match = micHtml().match(
+      /Level<\/span><span class="value">(-?[\d.]+) dBFS/,
+    );
     assert.ok(match, "the level row must render");
     return Number(match[1]);
   };
@@ -485,7 +526,13 @@ test("the handpose block shows summary meters and an expandable keypoint detail 
           sample: {
             seq,
             at: 5000,
-            handpose: { hands, confidence: 0.87, keypoints, inferMs: 42.5, rateHz: 9.5 },
+            handpose: {
+              hands,
+              confidence: 0.87,
+              keypoints,
+              inferMs: 42.5,
+              rateHz: 9.5,
+            },
           },
         },
       },
@@ -520,7 +567,7 @@ test("the handpose block shows summary meters and an expandable keypoint detail 
   assert.match(html, /9\.5 Hz/);
   assert.match(html, /origin top-left/); // the coordinate convention
   // The expandable detail exists with the canonical names.
-  assert.match(html, /<details class="kp-details">/);
+  assert.match(html, /<details class="kp-details" id="kp-toggle-1">/);
   const kp = page.sandbox.document.getElementById("kpd-1").innerHTML;
   assert.match(kp, /wrist/);
   assert.match(kp, /0\.500/);
@@ -535,8 +582,14 @@ test("the handpose block shows summary meters and an expandable keypoint detail 
   assert.deepEqual(calls[0], ["getContext", "2d"]);
   assert.deepEqual(calls[1], ["clearRect", 0, 0, 320, 240]);
   // The first drawable connected pair is [2,3]: mirrored x = (1-x)*320.
-  assert.deepEqual(calls.find((c) => c[0] === "moveTo"), ["moveTo", 256, 48]);
-  assert.deepEqual(calls.find((c) => c[0] === "lineTo"), ["lineTo", 224, 48]);
+  assert.deepEqual(
+    calls.find((c) => c[0] === "moveTo"),
+    ["moveTo", 256, 48],
+  );
+  assert.deepEqual(
+    calls.find((c) => c[0] === "lineTo"),
+    ["lineTo", 224, 48],
+  );
   // Five drawable keypoints become five dots; the null one is skipped.
   const arcs = calls.filter((c) => c[0] === "arc");
   assert.equal(arcs.length, 5);
@@ -567,4 +620,46 @@ test("the handpose block shows summary meters and an expandable keypoint detail 
   assert.ok(
     !calls.slice(lastClear).some((c) => c[0] === "arc" || c[0] === "moveTo"),
   );
+});
+
+test("instrument monitor counts online devices and keeps disclosure/focus across shape and locale changes", () => {
+  const page = loadMonitorPage();
+  const device = deviceEntry();
+  const state = {
+    sensors: {
+      at: 5000,
+      devices: {
+        1: device,
+        2: deviceEntry({ id: 2, connected: false, since: 4500 }),
+      },
+    },
+  };
+  page.handlers.state(state);
+  assert.equal(page.elements.get("connected-count").textContent, "01");
+  assert.equal(page.elements.get("empty-panel").hidden, true);
+  assert.match(page.elements.get("devices").innerHTML, /device-number">01/);
+  const toggle = page.sandbox.document.getElementById("kp-toggle-1");
+  toggle.open = true;
+  const summary = page.sandbox.document.getElementById("kp-summary-1");
+  summary.focus();
+  device.sensors.handpose.permission = "denied";
+  page.handlers.state(state);
+  const replacement = page.sandbox.document.getElementById("kp-toggle-1");
+  assert.notEqual(replacement, toggle, "the shape rebuild creates new DOM");
+  assert.equal(replacement.open, true, "operator's open detail survives");
+  assert.equal(
+    page.sandbox.document.activeElement,
+    page.sandbox.document.getElementById("kp-summary-1"),
+  );
+  page.locale("zh-CN");
+  assert.equal(page.elements.get("title-label").textContent, "传感器仪表");
+  assert.equal(page.elements.get("join-label").textContent, "设备加入");
+  assert.equal(page.sandbox.document.getElementById("kp-toggle-1").open, true);
+  assert.equal(
+    page.sandbox.document.activeElement,
+    page.sandbox.document.getElementById("kp-summary-1"),
+  );
+  page.handlers.state({ sensors: { at: 6000, devices: {} } });
+  assert.equal(page.elements.get("empty-panel").hidden, false);
+  assert.equal(page.elements.get("connected-count").textContent, "00");
 });

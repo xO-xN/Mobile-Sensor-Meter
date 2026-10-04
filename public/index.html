@@ -32,7 +32,9 @@
             '/socket.io/socket.io.js"\x3E\x3C/script\x3E',
         );
       } else {
-        document.write('\x3Cscript src="/socket.io/socket.io.js"\x3E\x3C/script\x3E');
+        document.write(
+          '\x3Cscript src="/socket.io/socket.io.js"\x3E\x3C/script\x3E',
+        );
       }
     </script>
   </head>
@@ -42,6 +44,7 @@
 
     <script>
       if (window.PNDS_IS_MONITOR) {
+        document.write('\x3Cscript src="theme.js"\x3E\x3C/script\x3E');
         // locale.js: the monitor follows the App's language push; the
         // performer branch uses its pickLocale() on the device language.
         document.write('\x3Cscript src="locale.js"\x3E\x3C/script\x3E');

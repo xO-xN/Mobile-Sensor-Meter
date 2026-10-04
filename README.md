@@ -12,6 +12,16 @@ Network-only on the server: no audio engine, no SuperCollider; the server always
 
 Adapted to the App's trusted-HTTPS entry contract (`scoreServer.supportsPerformerUrl: true`): the same project runs unchanged over plain HTTP, over the App's HTTPS entry, or over a standalone HTTPS trial (below).
 
+### Instrument panels (v0.3.1)
+
+A numbered panel per device contains four sensor sections (four/two/one columns).
+The monitor follows App colors and language; Brutal uses square corners and hard
+shadows. Expand **Join devices** in the footer for the QR and performer address.
+Phone pages share the fog/teal surfaces, system text and monospaced readings,
+with explicit capture buttons and permission notes. Keypoint disclosures retain
+open state and keyboard focus across shape/locale changes. All measurement rules,
+resource lifetimes, genuine zeros/nulls and frame-rate smoothing stay unchanged.
+
 ### What it verifies
 
 - **Tilt**: the α / β / γ angles the browser actually provides, in degrees, as provided — not a calibrated compass bearing. Missing fields read "unavailable", never 0°.
@@ -53,7 +63,7 @@ npm install
 npm start    # performer: http://<Host-LAN-IP>:6868/ · monitor: http://<Host-LAN-IP>:6869/
 ```
 
-Scan the QR on the monitor with a phone, tap Enable on a sensor, tilt, shake — for the mic, speak (or hold a silent room and watch the REAL zeros); for the hand, show it to the camera.
+Expand **Join devices** in the monitor footer and scan its QR with a phone, tap Enable on a sensor, tilt, shake — for the mic, speak (or hold a silent room and watch the REAL zeros); for the hand, show it to the camera.
 
 ### The local handpose assets
 
@@ -135,6 +145,15 @@ PNDS 仪表工程（Mobile Sensor Meter）：检验手机浏览器提供的传�
 服务端纯网络：无音频引擎、无 SuperCollider，始终以 `none` 模式运行。无摄像头作为数据；摄像头与麦克风只在用户主动点「启用」后使用、在手机本地处理（手部关键点、电平数值），从不录音、从不回放——任何原始媒体都不离开手机，只传处理后的数值。也无云推理：handpose 的 ml5.js 与两份 TFJS 模型全部由本工程自己的 origin 提供（见下）。不依赖 hub 或云。
 
 已适配 App 的可信 HTTPS 入口契约（`scoreServer.supportsPerformerUrl: true`）：同一份代码在纯 HTTP、App HTTPS 入口、独立 HTTPS 试验（见下）下行为一致。
+
+### 仪器面板（v0.3.1）
+
+与其余 Utilities 共用灰绿表面、系统字体和等宽读数。每台设备以大号编号定位，
+四个传感器区在宽屏并排，中屏两列、窄屏单列。Monitor 跟随 App 主题与语言，
+Brutal 同步方角硬阴影。底部展开「设备加入」查看二维码及完整演奏者地址。
+手机页沿用相同语言，保留明确的启用 / 停止操作、权限提示及设备语言。
+关键点详情在状态或语言变化时保留展开与键盘位置；采集、资源释放、零值与缺失值
+语义、帧率平滑及 10 秒断开宽限规则保持原样。
 
 ### 验证什么
 

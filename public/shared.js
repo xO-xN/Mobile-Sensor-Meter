@@ -15,7 +15,10 @@
     root.PNDS = factory({
       readConfig: function () {
         var cfg = root.__PNDS_CONFIG__;
-        if (!cfg) throw new Error("__PNDS_CONFIG__ not set — ensure __config.js loads before shared.js");
+        if (!cfg)
+          throw new Error(
+            "__PNDS_CONFIG__ not set — ensure __config.js loads before shared.js",
+          );
         return cfg;
       },
     });
@@ -42,29 +45,64 @@
     // are exclusive-resource sensors: their captures release on stop /
     // pagehide / background, and their samples carry processed values
     // only (levels, keypoints) — never audio or video.
-    sensorIds: { tilt: "tilt", motion: "motion", mic: "mic", handpose: "handpose" },
+    sensorIds: {
+      tilt: "tilt",
+      motion: "motion",
+      mic: "mic",
+      handpose: "handpose",
+    },
 
     // The 21 MediaPipe hand landmarks, in the canonical wire order. The
     // handpose samples carry {x, y} pairs in exactly this order; the
     // names live here once and both pages label from this table.
     keypointNames: [
       "wrist",
-      "thumb_cmc", "thumb_mcp", "thumb_ip", "thumb_tip",
-      "index_finger_mcp", "index_finger_pip", "index_finger_dip", "index_finger_tip",
-      "middle_finger_mcp", "middle_finger_pip", "middle_finger_dip", "middle_finger_tip",
-      "ring_finger_mcp", "ring_finger_pip", "ring_finger_dip", "ring_finger_tip",
-      "pinky_finger_mcp", "pinky_finger_pip", "pinky_finger_dip", "pinky_finger_tip",
+      "thumb_cmc",
+      "thumb_mcp",
+      "thumb_ip",
+      "thumb_tip",
+      "index_finger_mcp",
+      "index_finger_pip",
+      "index_finger_dip",
+      "index_finger_tip",
+      "middle_finger_mcp",
+      "middle_finger_pip",
+      "middle_finger_dip",
+      "middle_finger_tip",
+      "ring_finger_mcp",
+      "ring_finger_pip",
+      "ring_finger_dip",
+      "ring_finger_tip",
+      "pinky_finger_mcp",
+      "pinky_finger_pip",
+      "pinky_finger_dip",
+      "pinky_finger_tip",
     ],
 
     // Skeletal connections over keypoint indices (MediaPipe's hand
     // topology) — the phone's overlay draws these, mirrored to match
     // the selfie-view preview.
     handConnections: [
-      [0, 1], [1, 2], [2, 3], [3, 4],
-      [0, 5], [5, 6], [6, 7], [7, 8],
-      [5, 9], [9, 10], [10, 11], [11, 12],
-      [9, 13], [13, 14], [14, 15], [15, 16],
-      [13, 17], [17, 18], [18, 19], [19, 20],
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [0, 5],
+      [5, 6],
+      [6, 7],
+      [7, 8],
+      [5, 9],
+      [9, 10],
+      [10, 11],
+      [11, 12],
+      [9, 13],
+      [13, 14],
+      [14, 15],
+      [15, 16],
+      [13, 17],
+      [17, 18],
+      [18, 19],
+      [19, 20],
       [0, 17],
     ],
 
@@ -121,7 +159,9 @@
       en: {
         performer: {
           title: "Mobile Sensor Meter",
-          sub: "Performer",
+          sub: "Device sensors",
+          guide:
+            "Enable a sensor to share its readings. Keep this page open while testing.",
           connecting: "Connecting…",
           connected: "Connected",
           rejected: "Rejected: ",
@@ -131,7 +171,9 @@
           tiltTitle: "Tilt (device orientation)",
           motionTitle: "Motion (acceleration)",
           micTitle: "Microphone (level)",
-          alpha: "α", beta: "β", gamma: "γ",
+          alpha: "α",
+          beta: "β",
+          gamma: "γ",
           withGravity: "incl. gravity",
           withoutGravity: "user accel only",
           intensity: "Intensity",
@@ -140,8 +182,10 @@
           peak: "Peak",
           level: "Level",
           sampleRate: "Sample rate",
-          micUnsupported: "Microphone needs a secure (HTTPS) context — or is unsupported here",
-          micMeterNote: "Uncalibrated: FS = fraction of digital full scale; level is dBFS, floor −90",
+          micUnsupported:
+            "Microphone needs a secure (HTTPS) context — or is unsupported here",
+          micMeterNote:
+            "Uncalibrated: FS = fraction of digital full scale; level is dBFS, floor −90",
           handposeTitle: "Hand (ml5 HandPose)",
           hands: "Hands",
           confidence: "Confidence",
@@ -151,14 +195,17 @@
           noHand: "No hand detected",
           modelLoading: "Camera live — loading local model…",
           cameraAsk: "Tap Enable to grant camera access",
-          handposeUnsupported: "Camera needs a secure (HTTPS) context — or is unsupported here",
-          modelError: "Model failed to load — run npm run fetch:handpose on the host",
+          handposeUnsupported:
+            "Camera needs a secure (HTTPS) context — or is unsupported here",
+          modelError:
+            "Model failed to load — run npm run fetch:handpose on the host",
           modelFailedPrefix: "Model load failed:",
           inferenceError: "Inference failed — try enabling again",
           inferenceFailedPrefix: "Inference failed:",
           webglUnavailable:
             "WebGL unavailable on this page — the hand model needs GPU access (iOS Low Power Mode disables WebGL)",
-          handposeConvention: "Keypoints normalized [0, 1], origin top-left, unmirrored (model frame)",
+          handposeConvention:
+            "Keypoints normalized [0, 1], origin top-left, unmirrored (model frame)",
           unavailable: "unavailable",
           permissionDenied: "Permission denied — enable in browser settings",
           permissionAsk: "Tap Enable to grant sensor access",
@@ -171,8 +218,15 @@
         },
         monitor: {
           title: "Mobile Sensor Meter",
-          sub: "Monitor — sensor test console",
-          empty: "No devices yet — scan the QR code below",
+          sub: "Sensor readings from connected devices",
+          connected: "Connected devices",
+          devices: "Devices",
+          readings: "Tilt / motion / microphone / hand",
+          emptyTitle: "Connect your first device",
+          join: "Join devices",
+          footerHint: "Enable sensors on the phone to begin sharing readings.",
+          empty:
+            "No devices yet — expand Join devices below and scan the QR code",
           scan: "Scan to join as performer",
           qrAlt: "QR code for the performer page",
           address: "Performer address",
@@ -194,7 +248,9 @@
             denied: "denied",
             unsupported: "unsupported",
           },
-          alpha: "α", beta: "β", gamma: "γ",
+          alpha: "α",
+          beta: "β",
+          gamma: "γ",
           withGravity: "incl. gravity",
           withoutGravity: "user accel only",
           gravityField: "gravity",
@@ -205,7 +261,8 @@
           peak: "Peak",
           level: "Level",
           sampleRate: "Sample rate",
-          micMeterNote: "Uncalibrated: FS = fraction of digital full scale; level is dBFS, floor −90",
+          micMeterNote:
+            "Uncalibrated: FS = fraction of digital full scale; level is dBFS, floor −90",
           handpose: "Hand",
           hands: "Hands",
           confidence: "Confidence",
@@ -213,7 +270,8 @@
           rateHz: "Update rate",
           keypointsLabel: "Keypoints",
           noHand: "No hand detected",
-          handposeConvention: "Keypoints normalized [0, 1], origin top-left, unmirrored (model frame)",
+          handposeConvention:
+            "Keypoints normalized [0, 1], origin top-left, unmirrored (model frame)",
           unavailable: "unavailable",
           ago: { just: "just now", seconds: "s ago", minutes: "m ago" },
         },
@@ -221,7 +279,8 @@
       "zh-CN": {
         performer: {
           title: "传感器仪表",
-          sub: "演奏者",
+          sub: "设备传感器",
+          guide: "启用传感器后共享读数；测试时请保持此页面打开。",
           connecting: "连接中…",
           connected: "已连接",
           rejected: "被拒绝：",
@@ -231,7 +290,9 @@
           tiltTitle: "倾斜（设备方向）",
           motionTitle: "运动（加速度）",
           micTitle: "麦克风（电平）",
-          alpha: "α", beta: "β", gamma: "γ",
+          alpha: "α",
+          beta: "β",
+          gamma: "γ",
           withGravity: "含重力",
           withoutGravity: "仅用户加速度",
           intensity: "运动强度",
@@ -258,7 +319,8 @@
           inferenceFailedPrefix: "推理失败：",
           webglUnavailable:
             "此页面无法使用 WebGL——手部模型需要 GPU（iOS 低电量模式会禁用 WebGL）",
-          handposeConvention: "关键点归一化 [0, 1]，原点左上，未镜像（模型坐标系）",
+          handposeConvention:
+            "关键点归一化 [0, 1]，原点左上，未镜像（模型坐标系）",
           unavailable: "不可用",
           permissionDenied: "权限被拒绝 — 请在浏览器设置中允许",
           permissionAsk: "点「启用」授予传感器权限",
@@ -271,8 +333,14 @@
         },
         monitor: {
           title: "传感器仪表",
-          sub: "监视端 — 传感器测试控制台",
-          empty: "还没有设备 — 扫描下方二维码加入",
+          sub: "查看已连接设备的传感器读数",
+          connected: "已连接设备",
+          devices: "设备",
+          readings: "倾斜 / 运动 / 麦克风 / 手部",
+          emptyTitle: "连接第一台设备",
+          join: "设备加入",
+          footerHint: "在手机上启用传感器，开始共享读数。",
+          empty: "还没有设备 — 展开下方「设备加入」并扫描二维码",
           scan: "扫码加入为测试设备",
           qrAlt: "演奏者页面二维码",
           address: "演奏者地址",
@@ -294,7 +362,9 @@
             denied: "被拒绝",
             unsupported: "不支持",
           },
-          alpha: "α", beta: "β", gamma: "γ",
+          alpha: "α",
+          beta: "β",
+          gamma: "γ",
           withGravity: "含重力",
           withoutGravity: "仅用户加速度",
           gravityField: "重力",
@@ -313,7 +383,8 @@
           rateHz: "更新率",
           keypointsLabel: "关键点",
           noHand: "未检测到手",
-          handposeConvention: "关键点归一化 [0, 1]，原点左上，未镜像（模型坐标系）",
+          handposeConvention:
+            "关键点归一化 [0, 1]，原点左上，未镜像（模型坐标系）",
           unavailable: "不可用",
           ago: { just: "刚刚", seconds: " 秒前", minutes: " 分钟前" },
         },

@@ -35,15 +35,22 @@ const locale = window.PNDS_LOCALE.pickLocale(navigator.language);
 const T = P.copy[locale].performer;
 
 const app = document.getElementById("app");
+app.className = "performer-instrument";
 
 app.innerHTML =
-  "<header>" +
-  "<h1>" + T.title + "</h1>" +
-  '<span class="sub">' + T.sub + "</span>" +
-  "</header>" +
+  '<div class="brand"><svg viewBox="0 0 28 20" fill="none" aria-hidden="true"><path d="M3 10h4l3-7 5 14 3-7h7" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span>PNDS UTILITY</span></div>' +
+  "<header><h1>" +
+  T.title +
+  '</h1><p class="sub">' +
+  T.sub +
+  "</p></header>" +
+  '<div class="device-connection"><div><p class="device-k" id="device-label"></p><span class="perf-id" id="device-number">—</span></div><p class="connection-status" id="conn-status" role="status">' +
+  T.connecting +
+  "</p></div>" +
+  '<p class="capture-guide">' +
+  T.guide +
+  "</p>" +
   '<div class="perf">' +
-  '<p class="hint" id="conn-status">' + T.connecting + "</p>" +
-  '<p class="hint" id="device-label"></p>' +
   sensorCardHtml("tilt") +
   sensorCardHtml("motion") +
   sensorCardHtml("mic") +
@@ -52,15 +59,33 @@ app.innerHTML =
 
 function sensorCardHtml(sensor) {
   const title =
-    sensor === "tilt" ? T.tiltTitle : sensor === "motion" ? T.motionTitle : T.micTitle;
+    sensor === "tilt"
+      ? T.tiltTitle
+      : sensor === "motion"
+        ? T.motionTitle
+        : T.micTitle;
   return (
-    '<div class="card" id="card-' + sensor + '">' +
+    '<div class="card" id="card-' +
+    sensor +
+    '">' +
     '<div class="sensor-head">' +
-    "<h2>" + title + "</h2>" +
-    '<button id="btn-' + sensor + '">' + T.enable + "</button>" +
+    "<h2>" +
+    title +
+    "</h2>" +
+    '<button type="button" aria-describedby="note-' +
+    sensor +
+    '" id="btn-' +
+    sensor +
+    '">' +
+    T.enable +
+    "</button>" +
     "</div>" +
-    '<p class="sensor-note" id="note-' + sensor + '"></p>' +
-    '<div id="values-' + sensor + '"></div>' +
+    '<p class="sensor-note" role="status" id="note-' +
+    sensor +
+    '"></p>' +
+    '<div id="values-' +
+    sensor +
+    '"></div>' +
     "</div>"
   );
 }
@@ -72,14 +97,18 @@ function handposeCardHtml() {
   return (
     '<div class="card" id="card-handpose">' +
     '<div class="sensor-head">' +
-    "<h2>" + T.handposeTitle + "</h2>" +
-    '<button id="btn-handpose">' + T.enable + "</button>" +
+    "<h2>" +
+    T.handposeTitle +
+    "</h2>" +
+    '<button type="button" aria-describedby="note-handpose" id="btn-handpose">' +
+    T.enable +
+    "</button>" +
     "</div>" +
     '<div class="hp-preview">' +
     '<video id="hp-video" playsinline muted autoplay></video>' +
     '<canvas id="hp-canvas"></canvas>' +
     "</div>" +
-    '<p class="sensor-note" id="note-handpose"></p>' +
+    '<p class="sensor-note" role="status" id="note-handpose"></p>' +
     '<div id="values-handpose"></div>' +
     "</div>"
   );
@@ -116,6 +145,9 @@ socket.on(P.events.joined, (data) => {
   localStorage.setItem(P.tokenKey, data.token);
   deviceId = data.id;
   deviceEl.textContent = T.device + data.id + (data.recovered ? " ✓" : "");
+  document.getElementById("device-number").textContent = String(
+    data.id,
+  ).padStart(2, "0");
   setConnection(T.connected);
 });
 
@@ -136,6 +168,7 @@ socket.on("connect", () => {
 
 socket.on("disconnect", () => {
   connected = false;
+  document.getElementById("device-number").textContent = "—";
   setConnection(T.connecting);
 });
 
@@ -252,7 +285,8 @@ const mic = new ML.MicController(
     // A non-secure context hides navigator.mediaDevices entirely — the
     // controller reports "unsupported" and the note says why (HTTPS).
     getUserMedia:
-      navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function"
+      navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === "function"
         ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
         : null,
     releaseStream: stopStreamTracks,
@@ -365,7 +399,8 @@ function wrapMl5HandPose(config) {
       }
 
       const handed = window.ml5.handPose(config);
-      const thenable = (value) => Boolean(value) && typeof value.then === "function";
+      const thenable = (value) =>
+        Boolean(value) && typeof value.then === "function";
       const instance = thenable(handed) ? await handed : handed;
 
       if (!instance || typeof instance.detect !== "function") {
@@ -398,9 +433,10 @@ function hpVideo() {
 // costs ~1–2 ms at 640×480, and the preview keeps its own video
 // element untouched. No frames yet → null (the controller skips the
 // tick; "no frames" is not "no hand").
-const hpFrame = typeof document !== "undefined" && document.createElement
-  ? document.createElement("canvas")
-  : null;
+const hpFrame =
+  typeof document !== "undefined" && document.createElement
+    ? document.createElement("canvas")
+    : null;
 
 function hpFrameCopy() {
   const video = hpVideo();
@@ -431,7 +467,8 @@ const handpose = new HPL.HandPoseController(
   {
     now: () => performance.now(),
     getUserMedia:
-      navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function"
+      navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === "function"
         ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
         : null,
     releaseStream: stopStreamTracks,
@@ -501,7 +538,10 @@ const handpose = new HPL.HandPoseController(
       renderHandposeState();
     },
     onPermission: (permission) => {
-      socket.emit(P.events.sensorPermission, { sensor: "handpose", permission });
+      socket.emit(P.events.sensorPermission, {
+        sensor: "handpose",
+        permission,
+      });
       renderHandposeState();
     },
     onSend: (sample, seq) => {
@@ -515,7 +555,10 @@ const handpose = new HPL.HandPoseController(
 
       lastShown.handpose = { sample, seq };
       drawHandposeOverlay(sample);
-      document.getElementById("values-handpose").innerHTML = R.handposeRows(sample, T);
+      document.getElementById("values-handpose").innerHTML = R.handposeRows(
+        sample,
+        T,
+      );
     },
   },
 );
@@ -530,7 +573,9 @@ els.handpose.button.addEventListener("click", () => {
 
 function isHandposeActive(state) {
   return (
-    state === "camera-starting" || state === "loading-model" || state === "running"
+    state === "camera-starting" ||
+    state === "loading-model" ||
+    state === "running"
   );
 }
 
@@ -563,15 +608,23 @@ function drawHandposeOverlay(sample) {
 
   context.clearRect(0, 0, width, height);
 
-  if (sample.hands === 0 || !Array.isArray(sample.keypoints) || sample.keypoints.length === 0) {
+  if (
+    sample.hands === 0 ||
+    !Array.isArray(sample.keypoints) ||
+    sample.keypoints.length === 0
+  ) {
     return; // no hand: the cleared overlay IS the no-hand display
   }
 
   const px = (point) => [(1 - point.x) * width, point.y * height];
   const drawable = (point) =>
-    point && point.x !== null && point.y !== null && point.x !== undefined && point.y !== undefined;
+    point &&
+    point.x !== null &&
+    point.y !== null &&
+    point.x !== undefined &&
+    point.y !== undefined;
 
-  context.strokeStyle = "rgba(90, 79, 243, 0.9)";
+  context.strokeStyle = "#86efac";
   context.lineWidth = 2;
 
   for (const [from, to] of P.handConnections) {
@@ -590,7 +643,7 @@ function drawHandposeOverlay(sample) {
     context.stroke();
   }
 
-  context.fillStyle = "#16a34a";
+  context.fillStyle = "#f9fbfa";
 
   for (const point of sample.keypoints) {
     if (!drawable(point)) {
@@ -626,6 +679,7 @@ function renderHandposeState() {
 
   button.classList.toggle("stop", isHandposeActive(state));
   button.textContent = isHandposeActive(state) ? T.stop : T.enable;
+  button.setAttribute("aria-pressed", String(isHandposeActive(state)));
 
   if (handpose.paused && isHandposeActive(state)) {
     note.textContent = T.paused;
@@ -744,6 +798,7 @@ function renderSensorState(sensor) {
 
   button.classList.toggle("stop", isCapturing(state));
   button.textContent = isCapturing(state) ? T.stop : T.enable;
+  button.setAttribute("aria-pressed", String(isCapturing(state)));
 
   if (controller.paused && isCapturing(state)) {
     note.textContent = T.paused;
@@ -795,6 +850,7 @@ function renderMicState() {
 
   button.classList.toggle("stop", isCapturing(state));
   button.textContent = isCapturing(state) ? T.stop : T.enable;
+  button.setAttribute("aria-pressed", String(isCapturing(state)));
 
   if (mic.paused && isCapturing(state)) {
     note.textContent = T.paused;

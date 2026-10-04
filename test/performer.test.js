@@ -165,7 +165,9 @@ function loadPerformerPage(options = {}) {
     micHarness.gumCalls.push(constraints);
 
     if (options.gum === "deny") {
-      return Promise.reject(Object.assign(new Error("denied"), { name: "NotAllowedError" }));
+      return Promise.reject(
+        Object.assign(new Error("denied"), { name: "NotAllowedError" }),
+      );
     }
 
     return Promise.resolve(fakeStream());
@@ -293,7 +295,11 @@ function loadPerformerPage(options = {}) {
           ? undefined
           : { getUserMedia: options.getUserMedia || defaultGetUserMedia },
     },
-    location: { hostname: "localhost", search: "", origin: "http://localhost:6868" },
+    location: {
+      hostname: "localhost",
+      search: "",
+      origin: "http://localhost:6868",
+    },
     DeviceOrientationEvent: options.orientationEvent,
     DeviceMotionEvent: options.motionEvent,
     addEventListener(type, fn) {
@@ -383,9 +389,13 @@ function loadPerformerPage(options = {}) {
   vm.runInContext("var window = this; var self = this;", sandbox);
 
   const run = (file) =>
-    vm.runInContext(fs.readFileSync(path.join(PUBLIC_DIR, file), "utf8"), sandbox, {
-      filename: file,
-    });
+    vm.runInContext(
+      fs.readFileSync(path.join(PUBLIC_DIR, file), "utf8"),
+      sandbox,
+      {
+        filename: file,
+      },
+    );
 
   run("shared.js");
   run("locale.js");
@@ -438,8 +448,7 @@ function loadPerformerPage(options = {}) {
     },
     // Live intervals beyond the page-load heartbeat (id 1): the mic's
     // and handpose's ticks are the only other interval users.
-    micIntervalCount: () =>
-      [...intervals.keys()].filter((id) => id > 1).length,
+    micIntervalCount: () => [...intervals.keys()].filter((id) => id > 1).length,
   };
 }
 
@@ -480,7 +489,11 @@ test("enabling tilt attaches capture, notifies the server, and renders the sent 
   assert.equal(start[1].sensor, "tilt");
   assert.equal(start[1].permission, "granted");
 
-  page.fireSensorEvent("deviceorientation", { alpha: 12.5, beta: 0, gamma: -3 });
+  page.fireSensorEvent("deviceorientation", {
+    alpha: 12.5,
+    beta: 0,
+    gamma: -3,
+  });
 
   const sample = page.emitted.find(([e]) => e === "pnds:sensor:sample");
   assert.ok(sample, "a sample must be sent");
@@ -534,9 +547,7 @@ test("an unsupported sensor reports the fact to the server and the UI", () => {
 
   page.button("tilt").dispatch("click");
 
-  const permission = page.emitted.find(
-    ([e]) => e === "pnds:sensor:permission",
-  );
+  const permission = page.emitted.find(([e]) => e === "pnds:sensor:permission");
   assert.ok(permission, "the unsupported fact must reach the server");
   assert.equal(permission[1].sensor, "tilt");
   assert.equal(permission[1].permission, "unsupported");
@@ -733,7 +744,9 @@ test("backgrounding releases the mic; returning re-acquires it silently", async 
   await flushMicrotasks();
   page.pumpIntervals();
   const gumCallsBefore = page.mic.gumCalls.length;
-  const startsBefore = page.emitted.filter(([e]) => e === "pnds:sensor:start").length;
+  const startsBefore = page.emitted.filter(
+    ([e]) => e === "pnds:sensor:start",
+  ).length;
   const contexts = page.mic.contextsCreated;
   assert.equal(startsBefore, 1); // the user's enable did notify the server
 
@@ -910,7 +923,9 @@ test("a failed vendor script load is model-error WITH THE REASON; the preview ke
 });
 
 test("a model-init failure shows the underlying tfjs/loader reason — not the fetch:handpose advice", async () => {
-  const page = loadPerformerPage({ modelReadyError: "HTTP 404 fetching model.json" });
+  const page = loadPerformerPage({
+    modelReadyError: "HTTP 404 fetching model.json",
+  });
   connectAndJoin(page);
 
   page.button("handpose").dispatch("click");
@@ -1058,7 +1073,9 @@ test("backgrounding releases the camera but keeps the model; return is silent an
   await flushMicrotasks();
 
   const gumBefore = page.mic.gumCalls.length;
-  const startsBefore = page.emitted.filter(([e]) => e === "pnds:sensor:start").length;
+  const startsBefore = page.emitted.filter(
+    ([e]) => e === "pnds:sensor:start",
+  ).length;
 
   page.sandbox.document.visibilityState = "hidden";
   page.fireDocument("visibilitychange");
@@ -1139,7 +1156,10 @@ test("an inference fault lands in its own state with the camera still live", asy
   await flushMicrotasks();
 
   // The fault's own reason rides along with the state.
-  assert.match(page.note("handpose").textContent, /Inference failed: backend lost/);
+  assert.match(
+    page.note("handpose").textContent,
+    /Inference failed: backend lost/,
+  );
   assert.equal(page.hp.disposedModels, 1); // the suspect model is gone
   assert.notEqual(page.elements.get("hp-video").srcObject, null); // camera kept
   assert.equal(page.micIntervalCount(), 0);
@@ -1152,4 +1172,26 @@ test("a missing local asset inventory warns before anything runs", async () => {
 
   assert.match(page.note("handpose").textContent, /fetch:handpose/);
   assert.equal(page.hp.scriptConfigs.length, 0);
+});
+
+test("instrument phone keeps device identity and exposes capture intent on the native controls", () => {
+  const page = loadPerformerPage({ orientationEvent: PLAIN_ORIENTATION });
+  connectAndJoin(page, null, 7);
+  assert.equal(page.elements.get("device-number").textContent, "07");
+  assert.equal(page.button("tilt").getAttribute("aria-pressed"), "false");
+  page.button("tilt").dispatch("click");
+  assert.equal(page.button("tilt").getAttribute("aria-pressed"), "true");
+  page.button("tilt").dispatch("click");
+  assert.equal(page.button("tilt").getAttribute("aria-pressed"), "false");
+  page.handlers.disconnect();
+  assert.equal(page.elements.get("device-number").textContent, "—");
+  const html = page.elements.get("app").innerHTML;
+  for (const sensor of ["tilt", "motion", "mic", "handpose"]) {
+    assert.match(
+      html,
+      new RegExp(
+        'aria-describedby="note-' + sensor + '" id="btn-' + sensor + '"',
+      ),
+    );
+  }
 });

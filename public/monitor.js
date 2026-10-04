@@ -49,20 +49,15 @@ const smoothed = {};
 const valueEls = {}; // id -> sensor -> the values container element
 let visibleIds = [];
 
-app.innerHTML =
-  "<header>" +
-  "<h1>" + titleText() + "</h1>" +
-  '<span class="sub" id="sub-label"></span>' +
-  "</header>" +
-  '<div class="mon">' +
-  '<div class="devices" id="devices"></div>' +
-  '<p class="hint" id="empty"></p>' +
-  '<div class="qr-row">' +
-  '<img src="/qr" id="qr-img" alt="" />' +
-  '<span class="sub" id="scan-label"></span>' +
-  '<span class="address" id="address-label"></span>' +
-  "</div>" +
-  "</div>";
+app.innerHTML = `
+  <div class="brand"><svg viewBox="0 0 28 20" fill="none" aria-hidden="true"><path d="M3 10h4l3-7 5 14 3-7h7" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span>PNDS UTILITY</span></div>
+  <header><div><h1 id="title-label"></h1><p class="sub" id="sub-label"></p></div><div class="activity"><span class="activity-value"><span id="connected-count">00</span><small id="capacity"></small></span><span class="activity-label" id="connected-label"></span></div></header>
+  <div class="mon">
+    <div class="section-head"><h2 id="devices-label"></h2><span class="section-note" id="readings-label"></span></div>
+    <div class="devices" id="devices"></div>
+    <div class="empty" id="empty-panel"><span class="empty-mark" aria-hidden="true">+</span><h3 id="empty-title"></h3><p class="hint" id="empty"></p></div>
+  </div>
+  <footer><p class="hint" id="footer-hint"></p><details class="remote"><summary><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4.5" y="1.5" width="7" height="13" rx="1.5" stroke="currentColor"/><path d="M7 12h2" stroke="currentColor"/></svg><span id="join-label"></span></summary><div class="qr-row"><img src="/qr" id="qr-img" alt=""/><span class="sub" id="scan-label"></span><span class="address" id="address-label"></span></div></details></footer>`;
 
 const devicesEl = document.getElementById("devices");
 const emptyEl = document.getElementById("empty");
@@ -85,10 +80,6 @@ socket.on(P.events.state, (payload) => {
 // live); idempotent by construction.
 L.subscribe(() => render());
 
-function titleText() {
-  return P.copy[L.current()].monitor.title;
-}
-
 // What forces a full card rebuild: the visible roster plus every
 // vocabulary on it. Newer sample VALUES only touch the value rows,
 // which the frame loop rewrites anyway.
@@ -104,7 +95,15 @@ function shapeFingerprint() {
       device.paused ? "paused" : "-",
       SENSORS.map((sensor) => {
         const record = device.sensors[sensor];
-        return sensor + ":" + record.capture + ":" + record.permission + ":" + record.freshness;
+        return (
+          sensor +
+          ":" +
+          record.capture +
+          ":" +
+          record.permission +
+          ":" +
+          record.freshness
+        );
       }).join("|"),
     );
   }
@@ -117,16 +116,30 @@ let lastShape = null;
 function render() {
   const T = P.copy[L.current()].monitor;
 
-  document.getElementById("sub-label").textContent = T.sub;
+  for (const [id, value] of Object.entries({
+    "title-label": T.title,
+    "sub-label": T.sub,
+    "connected-label": T.connected,
+    "devices-label": T.devices,
+    "readings-label": T.readings,
+    "empty-title": T.emptyTitle,
+    "join-label": T.join,
+    "footer-hint": T.footerHint,
+  }))
+    document.getElementById(id).textContent = value;
+  document.getElementById("capacity").textContent = " / " + P.maxClients;
   document.getElementById("scan-label").textContent = T.scan;
-  document
-    .getElementById("qr-img")
-    .setAttribute("alt", T.qrAlt);
-  document.getElementById("address-label").textContent = T.address + ": " + P.performerUrl;
+  document.getElementById("qr-img").setAttribute("alt", T.qrAlt);
+  document.getElementById("address-label").textContent =
+    T.address + ": " + P.performerUrl;
 
   visibleIds = R.visibleDeviceIds(state.sensors.devices, state.sensors.at);
 
   emptyEl.textContent = visibleIds.length === 0 ? T.empty : "";
+  document.getElementById("empty-panel").hidden = visibleIds.length !== 0;
+  document.getElementById("connected-count").textContent = String(
+    visibleIds.filter((id) => state.sensors.devices[id].connected).length,
+  ).padStart(2, "0");
 
   const shape = shapeFingerprint() + "#" + L.current();
 
@@ -137,9 +150,20 @@ function render() {
 }
 
 function rebuildCards(T) {
+  // Shape/locale changes preserve the operator's keypoint disclosure and
+  // its keyboard position. Value frames still never rebuild the details.
+  const openDetails = visibleIds.filter(
+    (id) => document.getElementById("kp-toggle-" + id)?.open,
+  );
+  const focusId = document.activeElement?.id;
   devicesEl.innerHTML = visibleIds
     .map((id) => deviceHtml(state.sensors.devices[id], T))
     .join("");
+
+  for (const id of openDetails)
+    document.getElementById("kp-toggle-" + id).open = true;
+  if (focusId && document.getElementById(focusId))
+    document.getElementById(focusId).focus();
 
   // (Re)bind the value containers and seed the display values from the
   // newest known sample — a rebuild never makes the numbers glide from
@@ -166,9 +190,13 @@ function rebuildCards(T) {
     smoothed[id] = {};
 
     for (const sensor of SENSORS) {
-      valueEls[id][sensor] = document.getElementById("values-" + id + "-" + sensor);
+      valueEls[id][sensor] = document.getElementById(
+        "values-" + id + "-" + sensor,
+      );
       const sample = device.sensors[sensor].sample;
-      smoothed[id][sensor] = sample ? cloneValueBlock(sensor, sampleValueBlock(sensor, sample)) : null;
+      smoothed[id][sensor] = sample
+        ? cloneValueBlock(sensor, sampleValueBlock(sensor, sample))
+        : null;
     }
   }
 
@@ -222,7 +250,9 @@ function paintSensor(id, sensor, device, T, dtMs) {
 
   smoothed[id][sensor] = current;
 
-  el.innerHTML = R.rowsFor(sensor, current, T) + R.row(T.freshness, ageText(device.sensors[sensor], T));
+  el.innerHTML =
+    R.rowsFor(sensor, current, T) +
+    R.row(T.freshness, ageText(device.sensors[sensor], T));
 
   if (sensor === "handpose") {
     paintKeypointDetails(id, device.sensors.handpose, T);
@@ -298,9 +328,13 @@ function paintHandposeMini(id, block) {
 
   const px = (point) => [(1 - point.x) * width, point.y * height];
   const drawable = (point) =>
-    point && point.x !== null && point.y !== null && point.x !== undefined && point.y !== undefined;
+    point &&
+    point.x !== null &&
+    point.y !== null &&
+    point.x !== undefined &&
+    point.y !== undefined;
 
-  context.strokeStyle = "rgba(90, 79, 243, 0.9)";
+  context.strokeStyle = "#86efac";
   context.lineWidth = 2;
 
   for (const [from, to] of P.handConnections) {
@@ -319,7 +353,7 @@ function paintHandposeMini(id, block) {
     context.stroke();
   }
 
-  context.fillStyle = "#16a34a";
+  context.fillStyle = "#f9fbfa";
 
   for (const point of block.keypoints) {
     if (!drawable(point)) {
@@ -374,17 +408,47 @@ function cloneValueBlock(sensor, block) {
 function advanceValueBlock(sensor, current, target, dtMs) {
   if (sensor === "tilt") {
     return {
-      alpha: R.approachField(current.alpha, target.alpha, dtMs, SMOOTH_TAU_MS, true),
-      beta: R.approachField(current.beta, target.beta, dtMs, SMOOTH_TAU_MS, false),
-      gamma: R.approachField(current.gamma, target.gamma, dtMs, SMOOTH_TAU_MS, false),
+      alpha: R.approachField(
+        current.alpha,
+        target.alpha,
+        dtMs,
+        SMOOTH_TAU_MS,
+        true,
+      ),
+      beta: R.approachField(
+        current.beta,
+        target.beta,
+        dtMs,
+        SMOOTH_TAU_MS,
+        false,
+      ),
+      gamma: R.approachField(
+        current.gamma,
+        target.gamma,
+        dtMs,
+        SMOOTH_TAU_MS,
+        false,
+      ),
     };
   }
 
   if (sensor === "mic") {
     return {
       rms: R.approachField(current.rms, target.rms, dtMs, SMOOTH_TAU_MS, false),
-      peak: R.approachField(current.peak, target.peak, dtMs, SMOOTH_TAU_MS, false),
-      level: R.approachField(current.level, target.level, dtMs, SMOOTH_TAU_MS, false),
+      peak: R.approachField(
+        current.peak,
+        target.peak,
+        dtMs,
+        SMOOTH_TAU_MS,
+        false,
+      ),
+      level: R.approachField(
+        current.level,
+        target.level,
+        dtMs,
+        SMOOTH_TAU_MS,
+        false,
+      ),
       // A fact, not a magnitude — the capture's rate, unsmoothed.
       sampleRate: target.sampleRate,
     };
@@ -394,12 +458,30 @@ function advanceValueBlock(sensor, current, target, dtMs) {
     return {
       // A count is a fact: detections, not a smoothed magnitude.
       hands: target.hands,
-      confidence: R.approachField(current.confidence, target.confidence, dtMs, SMOOTH_TAU_MS, false),
+      confidence: R.approachField(
+        current.confidence,
+        target.confidence,
+        dtMs,
+        SMOOTH_TAU_MS,
+        false,
+      ),
       // Keypoints are facts too — the expandable detail renders them
       // from the newest sample, never smoothed.
       keypoints: target.keypoints,
-      inferMs: R.approachField(current.inferMs, target.inferMs, dtMs, SMOOTH_TAU_MS, false),
-      rateHz: R.approachField(current.rateHz, target.rateHz, dtMs, SMOOTH_TAU_MS, false),
+      inferMs: R.approachField(
+        current.inferMs,
+        target.inferMs,
+        dtMs,
+        SMOOTH_TAU_MS,
+        false,
+      ),
+      rateHz: R.approachField(
+        current.rateHz,
+        target.rateHz,
+        dtMs,
+        SMOOTH_TAU_MS,
+        false,
+      ),
     };
   }
 
@@ -408,7 +490,13 @@ function advanceValueBlock(sensor, current, target, dtMs) {
     y: R.approachField(current.y, target.y, dtMs, SMOOTH_TAU_MS, false),
     z: R.approachField(current.z, target.z, dtMs, SMOOTH_TAU_MS, false),
     includesGravity: target.includesGravity,
-    intensity: R.approachField(current.intensity, target.intensity, dtMs, SMOOTH_TAU_MS, false),
+    intensity: R.approachField(
+      current.intensity,
+      target.intensity,
+      dtMs,
+      SMOOTH_TAU_MS,
+      false,
+    ),
     // A count is a count: events, not a smoothed magnitude.
     shakeCount: target.shakeCount,
   };
@@ -419,7 +507,10 @@ function advanceValueBlock(sensor, current, target, dtMs) {
 let lastFrameAt = null;
 
 function frame(nowMs) {
-  const dt = lastFrameAt === null ? SMOOTH_TAU_MS / 10 : Math.min(nowMs - lastFrameAt, 250);
+  const dt =
+    lastFrameAt === null
+      ? SMOOTH_TAU_MS / 10
+      : Math.min(nowMs - lastFrameAt, 250);
   lastFrameAt = nowMs;
 
   paintValues(dt);
@@ -432,12 +523,27 @@ if (typeof requestAnimationFrame === "function") {
 
 function deviceHtml(device, T) {
   return (
-    '<div class="card device" data-device="' + device.id + '">' +
+    '<div class="card device" data-device="' +
+    device.id +
+    '">' +
     '<div class="device-head">' +
-    "<h2>" + T.device + device.id + "</h2>" +
-    freshnessChip(device.connected ? deviceOverallFreshness(device) : P.freshness.disconnected, T) +
+    '<h2><span class="device-k">' +
+    T.device.trim() +
+    '</span><span class="device-number">' +
+    String(device.id).padStart(2, "0") +
+    "</span></h2>" +
+    freshnessChip(
+      device.connected
+        ? deviceOverallFreshness(device)
+        : P.freshness.disconnected,
+      T,
+    ) +
     "</div>" +
-    SENSORS.map((sensor) => sensorBlockHtml(device, device.sensors[sensor], T)).join("") +
+    '<div class="sensor-grid">' +
+    SENSORS.map((sensor) =>
+      sensorBlockHtml(device, device.sensors[sensor], T),
+    ).join("") +
+    "</div>" +
     "</div>"
   );
 }
@@ -464,7 +570,9 @@ function deviceOverallFreshness(device) {
   for (const sensor of SENSORS) {
     const freshness = device.sensors[sensor].freshness;
 
-    if (FRESHNESS_SEVERITY.indexOf(freshness) > FRESHNESS_SEVERITY.indexOf(worst)) {
+    if (
+      FRESHNESS_SEVERITY.indexOf(freshness) > FRESHNESS_SEVERITY.indexOf(worst)
+    ) {
       worst = freshness;
     }
   }
@@ -497,19 +605,37 @@ function sensorBlockHtml(device, sensor, T) {
 
   if (sensorId === "handpose") {
     detail =
-      '<canvas class="hp-mini" id="hp-mini-' + device.id + '"></canvas>' +
-      '<details class="kp-details"><summary>' + T.keypointsLabel + "</summary>" +
-      '<div class="kp-rows" id="kpd-' + device.id + '"></div></details>';
+      '<canvas class="hp-mini" id="hp-mini-' +
+      device.id +
+      '"></canvas>' +
+      '<details class="kp-details" id="kp-toggle-' +
+      device.id +
+      '"><summary id="kp-summary-' +
+      device.id +
+      '">' +
+      T.keypointsLabel +
+      "</summary>" +
+      '<div class="kp-rows" id="kpd-' +
+      device.id +
+      '"></div></details>';
   }
 
   return (
-    '<div class="sensor-block">' +
+    '<div class="sensor-block sensor-' +
+    sensorId +
+    '">' +
     "<h3>" +
+    '<span class="sensor-name">' +
     T[sensorId] +
+    "</span>" +
     freshnessChip(sensor.freshness, T) +
     permissionChip(sensor.permission, T) +
     "</h3>" +
-    '<div id="values-' + device.id + "-" + sensorId + '">' +
+    '<div id="values-' +
+    device.id +
+    "-" +
+    sensorId +
+    '">' +
     values +
     R.row(T.freshness, ageText(sensor, T)) +
     "</div>" +
@@ -519,11 +645,23 @@ function sensorBlockHtml(device, sensor, T) {
 }
 
 function freshnessChip(freshness, T) {
-  return '<span class="chip ' + freshness + '">' + T.freshnessWord[freshness] + "</span>";
+  return (
+    '<span class="chip ' +
+    freshness +
+    '">' +
+    T.freshnessWord[freshness] +
+    "</span>"
+  );
 }
 
 function permissionChip(permission, T) {
-  return '<span class="chip ' + permission + '">' + T.permissionWord[permission] + "</span>";
+  return (
+    '<span class="chip ' +
+    permission +
+    '">' +
+    T.permissionWord[permission] +
+    "</span>"
+  );
 }
 
 // How old the newest sample is — the honest freshness evidence. Only
@@ -545,7 +683,12 @@ function ageText(sensor, T) {
     return '<span class="value">' + seconds + T.ago.seconds + "</span>";
   }
 
-  return '<span class="value">' + Math.floor(seconds / 60) + T.ago.minutes + "</span>";
+  return (
+    '<span class="value">' +
+    Math.floor(seconds / 60) +
+    T.ago.minutes +
+    "</span>"
+  );
 }
 
 render();

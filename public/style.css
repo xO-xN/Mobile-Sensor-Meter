@@ -1,313 +1,644 @@
-/* Mobile Sensor Meter — both pages.
- *
- * Plain DOM, no p5. Light theme, centered flex column, one card per
- * sensor (performer) / per device (monitor); values are the content —
- * large tabular numerals, states color-coded, "unavailable" rendered
- * as a word, never as a number.
- */
-
+/* PNDS utility instruments. Values are measurements; unavailable is a word. */
 :root {
-  --bg: #f4f5fa;
-  --card: #ffffff;
-  --text: #1c1e2b;
-  --muted: #8a8fa3;
-  --accent: #5a4ff3;
-  --accent-soft: #e8eafd;
-  --danger: #e11d48;
-  --track: #e8ebf7;
-  --green: #16a34a;
-  --green-soft: #e7f6ec;
-  --yellow: #d97706;
-  --yellow-soft: #fdf3e3;
-  --red: #e11d48;
-  --red-soft: #fde8ee;
-  --gray: #8a8fa3;
-  --gray-soft: #eef0f6;
+  --bg: #edf0ef;
+  --card: #f9fbfa;
+  --text: #20332f;
+  --muted: #62716c;
+  --accent: #256c5b;
+  --accent-soft: #dfede7;
+  --danger: #bc354a;
+  --track: #d6dfdb;
+  --green: #15803d;
+  --yellow: #b45309;
+  --red: #bc354a;
+  --gray: #62716c;
+  --line: color-mix(in srgb, var(--text) 18%, var(--card));
+  --surface: color-mix(in srgb, var(--card) 70%, var(--bg));
+  --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --radius: 18px;
+  --duration: 140ms;
 }
-
 * {
   box-sizing: border-box;
 }
-
 html,
 body {
   margin: 0;
   min-height: 100%;
 }
-
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
   background: var(--bg);
   color: var(--text);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 20px;
+  min-block-size: 100vh;
+  display: grid;
+  place-items: center;
+  padding: clamp(20px, 4vw, 48px);
 }
-
 #app {
+  inline-size: min(1120px, 100%);
+}
+[hidden] {
+  display: none !important;
+}
+button,
+summary {
+  -webkit-tap-highlight-color: transparent;
+  cursor: default;
+}
+button:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 4px;
+}
+.brand {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 16px;
-  width: 100%;
+  gap: 10px;
+  margin-block-end: 28px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
 }
-
+.brand svg {
+  inline-size: 28px;
+  block-size: 20px;
+  color: var(--accent);
+}
 header {
-  text-align: center;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
 }
-
 h1 {
-  font-size: 20px;
+  font-size: clamp(27px, 3.8vw, 42px);
+  font-weight: 650;
+  letter-spacing: -0.055em;
+  margin: 0;
+  line-height: 1.1;
+}
+header .sub {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.activity {
+  text-align: end;
+  flex-shrink: 0;
+}
+.activity-value {
+  display: block;
+  font-family: var(--mono);
+  font-size: 28px;
+  letter-spacing: -0.06em;
+  line-height: 1.2;
+}
+.activity-value small {
+  font-size: 14px;
+  color: var(--muted);
+}
+.activity-label {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  margin-block-start: 5px;
+}
+.mon {
+  margin-block-start: 28px;
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-block-end: 18px;
+}
+.section-head h2 {
+  font-size: 11px;
+  font-weight: 600;
   margin: 0;
 }
-
-.sub {
+.section-note {
   color: var(--muted);
-  font-size: 13px;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: end;
 }
-
-/* ---------- shared card chrome ---------- */
-
-.card {
+.devices {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.card,
+.empty {
   background: var(--card);
-  border-radius: 14px;
-  box-shadow: 0 1px 4px rgba(28, 30, 43, 0.08);
-  padding: 14px 16px;
-  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 5%, transparent);
 }
-
-.card h2 {
-  font-size: 14px;
-  margin: 0 0 8px;
+.device {
+  padding: 24px;
 }
-
+.device-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block-end: 22px;
+  border-block-end: 1px solid var(--line);
+}
+.device-head h2 {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.device-k {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.device-number {
+  font-family: var(--mono);
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: -0.065em;
+  font-weight: 500;
+}
+.sensor-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-block-start: 22px;
+}
+.sensor-block {
+  min-inline-size: 0;
+  padding-inline: 18px;
+  border-inline-start: 1px solid var(--line);
+}
+.sensor-block:first-child {
+  padding-inline-start: 0;
+  border-inline-start: none;
+}
+.sensor-block:last-child {
+  padding-inline-end: 0;
+}
+.sensor-block h3 {
+  margin: 0 0 20px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.sensor-name {
+  flex-basis: 100%;
+  margin-block-end: 7px;
+}
 .row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
-  font-size: 13px;
-  padding: 2px 0;
+  gap: 10px;
+  padding-block: 7px;
 }
-
 .row .label {
   color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
 }
-
 .value {
+  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.045em;
+  font-weight: 400;
+  text-align: end;
+  overflow-wrap: anywhere;
+  min-inline-size: 0;
 }
-
 .value.na {
   color: var(--muted);
-  font-weight: 400;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0;
 }
-
-/* The mic rows' units footnote: what FS / dBFS mean, so the numbers on
- * both pages carry their own caveat (uncalibrated meter values). */
+.sensor-tilt .row:nth-child(-n + 3) .value:not(.na) {
+  font-size: 23px;
+}
+.sensor-mic .row:nth-child(3) .value:not(.na) {
+  font-size: 23px;
+}
 .meter-note {
   color: var(--muted);
-  font-size: 11px;
-  padding: 4px 0 0;
+  font-size: 9px;
+  line-height: 1.7;
+  margin-block-start: 10px;
 }
-
-/* ---------- state chips ---------- */
-
 .chip {
+  --chip: var(--gray);
   display: inline-block;
-  border-radius: 999px;
-  font-size: 11px;
-  padding: 2px 8px;
-  white-space: nowrap;
+  font-size: 9px;
+  line-height: 1.4;
+  padding: 4px 6px;
+  color: var(--chip);
+  border: 1px solid color-mix(in srgb, var(--chip) 35%, var(--card));
+  border-radius: 3px;
 }
-
-.chip.live { background: var(--green-soft); color: var(--green); }
-.chip.stale { background: var(--yellow-soft); color: var(--yellow); }
-.chip.paused { background: var(--gray-soft); color: var(--gray); }
-.chip.off { background: var(--gray-soft); color: var(--gray); }
-.chip.waiting { background: var(--accent-soft); color: var(--accent); }
-.chip.disconnected { background: var(--red-soft); color: var(--red); }
-.chip.denied { background: var(--red-soft); color: var(--red); }
-.chip.unsupported { background: var(--red-soft); color: var(--red); }
-.chip.granted { background: var(--green-soft); color: var(--green); }
-.chip.unknown { background: var(--gray-soft); color: var(--gray); }
-.chip.on { background: var(--green-soft); color: var(--green); }
-.chip.starting { background: var(--accent-soft); color: var(--accent); }
-.chip.error { background: var(--red-soft); color: var(--red); }
-
-/* ---------- buttons ---------- */
-
-button {
-  font: inherit;
-  font-size: 13px;
-  border: 0;
-  border-radius: 8px;
-  padding: 8px 14px;
-  background: var(--accent);
-  color: #fff;
-  cursor: pointer;
+.chip.live,
+.chip.granted,
+.chip.on {
+  --chip: var(--green);
 }
-
-button.stop {
-  background: var(--track);
-  color: var(--text);
+.chip.stale {
+  --chip: var(--yellow);
 }
-
-button:disabled {
-  opacity: 0.45;
-  cursor: default;
+.chip.disconnected,
+.chip.denied,
+.chip.unsupported,
+.chip.error {
+  --chip: var(--red);
 }
-
-/* ---------- performer page ---------- */
-
-.perf {
-  width: 100%;
-  max-width: 420px;
+.chip.waiting,
+.chip.starting {
+  --chip: var(--gray);
+}
+.empty {
+  min-block-size: 280px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  text-align: center;
 }
-
-.perf .sensor-head {
+.empty-mark {
+  font-family: var(--mono);
+  font-size: 40px;
+  color: var(--muted);
+  font-weight: 300;
+}
+.empty h3 {
+  font-size: 18px;
+  letter-spacing: -0.025em;
+  font-weight: 550;
+  margin: 14px 0 8px;
+}
+.hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 0;
+}
+.empty .hint {
+  max-inline-size: 330px;
+  font-size: 12px;
+}
+footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 14px;
+  margin-block-start: 16px;
+}
+.remote {
+  position: relative;
+  flex-shrink: 0;
+}
+.remote summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 40px;
+  padding-inline: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  list-style: none;
+  font-size: 11px;
+}
+.remote summary::-webkit-details-marker {
+  display: none;
+}
+.remote summary::after {
+  content: "+";
+  font-family: var(--mono);
+  color: var(--muted);
+}
+.remote[open] summary::after {
+  content: "−";
+}
+.remote summary svg {
+  inline-size: 14px;
+  block-size: 14px;
+}
+.qr-row {
+  position: absolute;
+  inset-block-end: calc(100% + 10px);
+  inset-inline-end: 0;
+  inline-size: 260px;
+  padding: 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 12%, transparent);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  z-index: 1;
+}
+.qr-row img {
+  inline-size: 144px;
+  block-size: 144px;
+  border: 6px solid #fff;
+  background: #fff;
+  border-radius: 3px;
+}
+.qr-row .sub {
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--muted);
+}
+.address {
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  inline-size: 100%;
+  user-select: text;
+}
+.hp-mini {
+  display: block;
+  inline-size: 100%;
+  aspect-ratio: 4 / 3;
+  background: #101c18;
+  border-radius: 5px;
+  margin-block: 16px 12px;
+}
+.kp-details summary {
+  color: var(--muted);
+  font-size: 10px;
+  padding-block: 8px;
+}
+.kp-rows {
+  margin-block-start: 8px;
+}
+.kp-rows .row {
+  align-items: flex-start;
   gap: 8px;
 }
-
-.sensor-note {
-  color: var(--muted);
-  font-size: 12px;
-  min-height: 16px;
-  margin: 4px 0 6px;
+.kp-rows .label {
+  max-inline-size: 70px;
+  overflow-wrap: anywhere;
+  font-size: 9px;
 }
-
+.kp-rows .value {
+  font-size: 10px;
+}
+#app.performer-instrument {
+  inline-size: min(460px, 100%);
+}
+.performer-instrument header {
+  display: block;
+}
+.performer-instrument h1 {
+  font-size: 32px;
+}
+.device-connection {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  border-block-end: 1px solid var(--line);
+  padding-block: 24px;
+}
+.device-connection .device-k {
+  margin: 0 0 8px;
+  font-size: 11px;
+}
+.perf-id {
+  font-family: var(--mono);
+  font-size: 64px;
+  line-height: 1;
+  letter-spacing: -0.075em;
+}
+.connection-status {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.capture-guide {
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--muted);
+  margin-block: 18px 24px;
+}
+.perf {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.perf .card {
+  padding: 20px;
+}
+.sensor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.sensor-head h2 {
+  font-size: 13px;
+  font-weight: 550;
+  margin: 0;
+  line-height: 1.5;
+}
+button {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  min-block-size: 44px;
+  padding-inline: 16px;
+  background: var(--accent-soft);
+  color: var(--text);
+  flex-shrink: 0;
+  transition: background var(--duration);
+}
+button:hover:enabled {
+  background: var(--surface);
+}
+button:active:enabled {
+  box-shadow: inset 0 0 0 1px var(--text);
+}
+button.stop {
+  background: var(--surface);
+  border-color: var(--line);
+}
+button:disabled {
+  color: var(--muted);
+  background: var(--surface);
+  border-color: var(--line);
+}
+.sensor-note {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.7;
+  min-block-size: 18px;
+  margin-block: 12px;
+}
 .sensor-note.bad {
   color: var(--danger);
 }
-
-/* ---------- handpose preview (#144) ---------- */
-
-/* The selfie preview: mirrored via CSS ONLY (the frame data the model
- * sees stays unmirrored); the overlay canvas mirrors x to match. */
+.perf .row {
+  border-block-end: 1px solid var(--line);
+  padding-block: 12px;
+}
+.perf .value {
+  font-size: 19px;
+}
+.perf .value.na {
+  font-size: 12px;
+}
+.perf .meter-note {
+  font-size: 10px;
+}
 .hp-preview {
   position: relative;
-  width: 100%;
+  inline-size: 100%;
   aspect-ratio: 4 / 3;
-  background: #000;
-  border-radius: 10px;
+  background: #101c18;
+  border-radius: 5px;
   overflow: hidden;
-  margin: 4px 0 6px;
+  margin-block: 16px 12px;
 }
-
 .hp-preview video {
-  width: 100%;
-  height: 100%;
+  inline-size: 100%;
+  block-size: 100%;
   object-fit: cover;
   transform: scaleX(-1);
 }
-
 .hp-preview canvas {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
+  inline-size: 100%;
+  block-size: 100%;
   pointer-events: none;
 }
-
-/* The monitor's expandable keypoint table: plain rows inside the
- * native disclosure widget — never recreated per frame, so it stays
- * open while the operator reads coordinates. */
-.kp-details summary {
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 12px;
-  padding: 4px 0;
+[data-utility-theme="brutal"] {
+  --radius: 0px;
+  --duration: 0ms;
+  --line: var(--text);
 }
-
-.kp-details .kp-rows .row {
-  font-size: 12px;
+[data-utility-theme="brutal"] .card,
+[data-utility-theme="brutal"] .empty {
+  box-shadow: 4px 4px 0 var(--text);
 }
-
-/* The monitor's mini skeleton window (#144): the hand's last shape on
- * a dark ground, mirroring x like the phone's selfie preview. Painted
- * on new seqs in place — the element is never recreated by the frame
- * loop. */
-.hp-mini {
-  display: block;
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  background: #101014;
-  border-radius: 10px;
-  margin: 4px 0 6px;
+[data-utility-theme="brutal"] .chip,
+[data-utility-theme="brutal"] .remote summary,
+[data-utility-theme="brutal"] .qr-row,
+[data-utility-theme="brutal"] .hp-mini {
+  border-radius: 0;
 }
-
-/* ---------- monitor page ---------- */
-
-.mon {
-  width: 100%;
-  max-width: 960px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+@media (max-width: 1020px) {
+  .sensor-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px 0;
+  }
+  .sensor-block {
+    padding-inline: 20px;
+  }
+  .sensor-block:nth-child(odd) {
+    padding-inline-start: 0;
+    border-inline-start: none;
+  }
+  .sensor-block:nth-child(even) {
+    padding-inline-end: 0;
+  }
+  .sensor-block:nth-child(n + 3) {
+    padding-block-start: 20px;
+    border-block-start: 1px solid var(--line);
+  }
+  .hp-mini {
+    max-inline-size: 300px;
+  }
 }
-
-.devices {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 12px;
-  width: 100%;
+@media (max-width: 560px) {
+  body {
+    padding: 24px 16px;
+  }
+  .brand {
+    margin-block-end: 22px;
+  }
+  header {
+    align-items: flex-start;
+    gap: 12px;
+  }
+  h1 {
+    font-size: 29px;
+  }
+  header .sub {
+    font-size: 11px;
+  }
+  .activity-value {
+    font-size: 23px;
+  }
+  .activity-label {
+    max-inline-size: 70px;
+    line-height: 1.5;
+    font-size: 9px;
+  }
+  .mon {
+    margin-block-start: 22px;
+  }
+  .section-note {
+    max-inline-size: 160px;
+    font-size: 9px;
+  }
+  .device {
+    padding: 20px;
+  }
+  .sensor-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .sensor-block,
+  .sensor-block:nth-child(odd),
+  .sensor-block:nth-child(even) {
+    padding-inline: 0;
+    border-inline-start: none;
+  }
+  .sensor-block + .sensor-block {
+    border-block-start: 1px solid var(--line);
+    padding-block-start: 20px;
+  }
+  .sensor-name {
+    flex-basis: auto;
+    margin-block-end: 0;
+    margin-inline-end: auto;
+  }
+  .sensor-block h3 {
+    margin-block-end: 12px;
+  }
+  .empty {
+    min-block-size: 240px;
+  }
+  footer .hint {
+    max-inline-size: 170px;
+    font-size: 10px;
+  }
 }
-
-.device .device-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.device .sensor-block {
-  border-top: 1px solid var(--track);
-  margin-top: 8px;
-  padding-top: 8px;
-}
-
-.device .sensor-block h3 {
-  font-size: 12px;
-  margin: 0 0 4px;
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.qr-row {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-
-.qr-row img {
-  width: 220px;
-  height: 220px;
-  background: #fff;
-  border-radius: 10px;
-}
-
-.address {
-  font-size: 12px;
-  color: var(--muted);
-  word-break: break-all;
-}
-
-.hint {
-  color: var(--muted);
-  font-size: 13px;
-  text-align: center;
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration: 0ms;
+  }
 }

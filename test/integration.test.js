@@ -228,6 +228,120 @@ function nextStateOn(socket, predicate, timeoutMs = 5000) {
   });
 }
 
+test("a mic's processed levels reach the monitor verbatim; silence survives as zeros, late results are refused", async () => {
+  const socket = connect();
+  const joined = await join(socket);
+
+  socket.emit(EVENTS.sensorStart, { sensor: "mic", permission: "granted" });
+
+  // Pre-sample: authorized, capturing, no data yet — its own state.
+  const waiting = await nextStateOn(
+    socket,
+    (state) => state.sensors.devices[joined.id]?.sensors.mic.capture === "on",
+  );
+  assert.equal(waiting.sensors.devices[joined.id].sensors.mic.freshness, "waiting");
+
+  // A silent room: REAL zeros (rms/peak), the level at its documented
+  // floor, the capture's rate riding along.
+  socket.emit(EVENTS.sensorSample, {
+    sensor: "mic",
+    seq: 41,
+    mic: { rms: 0, peak: 0, level: -90, sampleRate: 48000 },
+  });
+
+  const live = await nextStateOn(
+    socket,
+    (state) => state.sensors.devices[joined.id]?.sensors.mic.sample?.seq === 41,
+  );
+
+  const mic = live.sensors.devices[joined.id].sensors.mic;
+  assert.equal(mic.freshness, "live");
+  // The dual-end agreement: what the monitor holds is exactly what the
+  // phone sent (mic-logic.js analyzed, the hub stored — no audio ever
+  // rode this wire, only these four numbers).
+  assert.deepEqual(mic.sample.mic, {
+    rms: 0,
+    peak: 0,
+    level: -90,
+    sampleRate: 48000,
+  });
+
+  socket.emit(EVENTS.sensorStop, { sensor: "mic" });
+  const stopped = await nextStateOn(
+    socket,
+    (state) =>
+      state.sensors.devices[joined.id]?.sensors.mic.capture === "off",
+  );
+  assert.equal(stopped.sensors.devices[joined.id].sensors.mic.freshness, "off");
+
+  // The late result: refused — the frozen silence survives untouched.
+  socket.emit(EVENTS.sensorSample, {
+    sensor: "mic",
+    seq: 42,
+    mic: { rms: 1, peak: 1, level: 0, sampleRate: 48000 },
+  });
+
+  await sleep(1300); // past a tick: an accepted sample would have shown
+
+  const frozen = await nextStateOn(
+    socket,
+    (state) => state.sensors.devices[joined.id]?.sensors.mic.capture === "off",
+  );
+  assert.deepEqual(frozen.sensors.devices[joined.id].sensors.mic.sample.mic, {
+    rms: 0,
+    peak: 0,
+    level: -90,
+    sampleRate: 48000,
+  });
+
+  socket.close();
+});
+
+test("a mic's samples after a background pause/resume keep climbing — no replay refusal", async () => {
+  const socket = connect();
+  const joined = await join(socket);
+
+  socket.emit(EVENTS.sensorStart, { sensor: "mic", permission: "granted" });
+  await nextStateOn(
+    socket,
+    (state) => state.sensors.devices[joined.id]?.sensors.mic.capture === "on",
+  );
+
+  socket.emit(EVENTS.sensorSample, {
+    sensor: "mic",
+    seq: 5,
+    mic: { rms: 0.02, peak: 0.1, level: -34, sampleRate: 48000 },
+  });
+  await nextStateOn(
+    socket,
+    (state) => state.sensors.devices[joined.id]?.sensors.mic.sample?.seq === 5,
+  );
+
+  // Background and return — device-level events only: the phone's
+  // silent re-acquisition sends NO new sensorStart, so the record (and
+  // its seq bar) survives; the climbing seq must be accepted.
+  socket.emit(EVENTS.sensorPause);
+  const paused = await nextStateOn(
+    socket,
+    (state) => state.sensors.devices[joined.id]?.paused === true,
+  );
+  assert.equal(paused.sensors.devices[joined.id].sensors.mic.freshness, "paused");
+
+  socket.emit(EVENTS.sensorResume);
+  socket.emit(EVENTS.sensorSample, {
+    sensor: "mic",
+    seq: 6,
+    mic: { rms: 0.03, peak: 0.2, level: -30, sampleRate: 48000 },
+  });
+  const resumed = await nextStateOn(
+    socket,
+    (state) => state.sensors.devices[joined.id]?.sensors.mic.sample?.seq === 6,
+  );
+  assert.equal(resumed.sensors.devices[joined.id].sensors.mic.freshness, "live");
+
+  socket.close();
+});
+
 test("a device's sample reaches the monitor with the same seq and values; zeros and nulls survive the wire", async () => {
   const socket = connect();
   const joined = await join(socket);

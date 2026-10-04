@@ -1,6 +1,7 @@
 // The shared rendering helpers' pure logic: the frame-rate smoothing
-// (exponential approach, α wrap-around, null pass-through) and the
-// monitor roster's disconnected-device hide window.
+// (exponential approach, α wrap-around, null pass-through), the mic
+// rows' unit formatting, and the monitor roster's disconnected-device
+// hide window.
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
@@ -59,6 +60,36 @@ test("approachField: a null on either side passes through unsmoothed", () => {
   assert.equal(R.approachField(5, null, 16, 100, false), null);
   assert.equal(R.approachField(null, null, 16, 100, false), null);
   assert.ok(R.approachField(1, 2, 16, 100, false) > 1);
+});
+
+// ------------------------------------------------------------
+// Mic rows (units and the honest-floor vocabulary)
+// ------------------------------------------------------------
+
+test("micRows: 4-decimal FS, dBFS level, integer Hz — and the uncalibrated note on every render", () => {
+  const T = {
+    rms: "RMS",
+    peak: "Peak",
+    level: "Level",
+    sampleRate: "Sample rate",
+    unavailable: "unavailable",
+    micMeterNote: "Uncalibrated: FS = fraction of digital full scale; level is dBFS, floor −90",
+  };
+
+  const html = R.micRows({ rms: 0.25, peak: 0.5, level: -9.03, sampleRate: 48000 }, T);
+  assert.match(html, /0\.2500 FS/);
+  assert.match(html, /0\.5000 FS/);
+  assert.match(html, /-9\.0 dBFS/);
+  assert.match(html, /48000 Hz/);
+  assert.match(html, /Uncalibrated/);
+
+  // A silent room: REAL zeros with their units, the level at its floor,
+  // and a missing rate as a word — never "0 Hz".
+  const silent = R.micRows({ rms: 0, peak: 0, level: -90, sampleRate: null }, T);
+  assert.match(silent, /0\.0000 FS/);
+  assert.match(silent, /-90\.0 dBFS/);
+  assert.match(silent, /unavailable/);
+  assert.doesNotMatch(silent, /null Hz/);
 });
 
 // ------------------------------------------------------------

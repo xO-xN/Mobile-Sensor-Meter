@@ -113,6 +113,13 @@ function deviceEntry(overrides = {}) {
         freshness: "waiting",
         sample: null,
       },
+      mic: {
+        sensor: "mic",
+        capture: "off",
+        permission: "unknown",
+        freshness: "off",
+        sample: null,
+      },
     },
     ...overrides,
   };
@@ -166,6 +173,7 @@ test("every freshness vocabulary renders distinctly — never a number masquerad
       devices: {
         1: deviceEntry({
           sensors: {
+            ...deviceEntry().sensors,
             tilt: { ...deviceEntry().sensors.tilt, freshness: "waiting" },
             motion: { ...deviceEntry().sensors.motion, freshness: "live" },
           },
@@ -174,6 +182,7 @@ test("every freshness vocabulary renders distinctly — never a number masquerad
           id: 2,
           paused: true,
           sensors: {
+            ...deviceEntry().sensors,
             tilt: { ...deviceEntry().sensors.tilt, freshness: "stale" },
             motion: { ...deviceEntry().sensors.motion, freshness: "off" },
           },
@@ -182,6 +191,7 @@ test("every freshness vocabulary renders distinctly — never a number masquerad
           id: 3,
           connected: false,
           sensors: {
+            ...deviceEntry().sensors,
             tilt: { ...deviceEntry().sensors.tilt, freshness: "disconnected" },
             motion: { ...deviceEntry().sensors.motion, freshness: "off" },
           },
@@ -217,6 +227,7 @@ test("values render with units; nulls render unavailable; zeros stay zeros", () 
       devices: {
         1: deviceEntry({
           sensors: {
+            ...deviceEntry().sensors,
             tilt: {
               ...deviceEntry().sensors.tilt,
               sample: { seq: 42, at: 5000, tilt: { alpha: 12.5, beta: 0, gamma: null } },
@@ -236,6 +247,16 @@ test("values render with units; nulls render unavailable; zeros stay zeros", () 
                 },
               },
             },
+            mic: {
+              ...deviceEntry().sensors.mic,
+              capture: "on",
+              freshness: "live",
+              sample: {
+                seq: 9,
+                at: 5000,
+                mic: { rms: 0, peak: 0, level: -90, sampleRate: null },
+              },
+            },
           },
         }),
       },
@@ -251,6 +272,13 @@ test("values render with units; nulls render unavailable; zeros stay zeros", () 
   assert.match(html, /0\.4 m\/s²/);
   assert.match(html, />3</);
   assert.match(html, /incl\. gravity/);
+  // The mic block: a silent room is REAL zeros with meter units, the
+  // level at its floor, a missing rate as a word — and the
+  // uncalibrated note rides along (#143).
+  assert.match(html, /Microphone/);
+  assert.match(html, /0\.0000 FS/);
+  assert.match(html, /-90\.0 dBFS/);
+  assert.match(html, /Uncalibrated/);
   // Missing fields are words, never zeros.
   assert.match(html, /unavailable/);
 });
@@ -261,6 +289,7 @@ test("values glide at frame rate toward the newest sample — never a jump", () 
   const entryWith = (alpha, seq, at) =>
     deviceEntry({
       sensors: {
+        ...deviceEntry().sensors,
         tilt: {
           ...deviceEntry().sensors.tilt,
           sample: { seq, at, tilt: { alpha, beta: 0, gamma: 0 } },
@@ -309,6 +338,56 @@ test("values glide at frame rate toward the newest sample — never a jump", () 
     page.pump(t);
   }
   assert.ok(alphaRow() > 89.9, `converged: ${alphaRow()}`);
+});
+
+test("the mic's level glides at frame rate; the sample rate never smooths", () => {
+  const page = loadMonitorPage();
+
+  const micEntry = (level, seq) =>
+    deviceEntry({
+      sensors: {
+        ...deviceEntry().sensors,
+        mic: {
+          ...deviceEntry().sensors.mic,
+          capture: "on",
+          freshness: "live",
+          sample: {
+            seq,
+            at: 5000,
+            mic: { rms: 0.1, peak: 0.2, level, sampleRate: 44100 },
+          },
+        },
+      },
+    });
+
+  page.handlers.state({
+    sensors: { at: 5000, staleAfterMs: 2000, devices: { 1: micEntry(-60, 1) } },
+  });
+
+  const micHtml = () =>
+    page.sandbox.document.getElementById("values-1-mic").innerHTML;
+  const levelRow = () => {
+    const match = micHtml().match(/Level<\/span><span class="value">(-?[\d.]+) dBFS/);
+    assert.ok(match, "the level row must render");
+    return Number(match[1]);
+  };
+
+  // The rebuild paints the newest sample directly (no glide from the
+  // −90 floor).
+  assert.equal(levelRow(), -60);
+
+  // A louder sample lands (same shape — the card is not rebuilt): the
+  // first frame moves TOWARD 0 dBFS without reaching it.
+  page.handlers.state({
+    sensors: { at: 5000, staleAfterMs: 2000, devices: { 1: micEntry(0, 2) } },
+  });
+  page.pump(1000);
+  const gliding = levelRow();
+  assert.ok(gliding < 0 && gliding > -60, `gliding, not jumping: ${gliding}`);
+
+  // The sample rate is a fact, not a magnitude: identical every frame.
+  const rate = micHtml().match(/(-?\d+) Hz/);
+  assert.equal(rate[1], "44100");
 });
 
 test("a disconnected device stays through a blip and leaves after the grace window", () => {

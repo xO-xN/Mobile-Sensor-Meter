@@ -1,7 +1,7 @@
 // Mobile Sensor Meter — performer page.
 //
-// The phone is the sensor: two cards (tilt, motion), each with the
-// user's explicit Enable/Stop pair — iOS requires the permission
+// The phone is the sensor: three cards (tilt, motion, mic), each with
+// the user's explicit Enable/Stop pair — iOS requires the permission
 // request to happen inside a user gesture, so capture NEVER starts on
 // its own. The value readout binds to the SEND path (the exact sample
 // that goes on the wire is the sample the phone displays), so what the
@@ -9,12 +9,22 @@
 // facts. No rate counters anywhere — the monitor renders at frame rate,
 // smoothing toward the newest sample; smoothness is the deliverable.
 //
+// The mic card (#143) is stricter than the motion cards because the
+// microphone is an EXCLUSIVE resource: capture not only stops on the
+// user's Stop, on pagehide and on backgrounding — it RELEASES the
+// stream and the analysis graph every time (the mic indicator goes
+// dark), re-acquiring silently when the page returns if the user had
+// left it on. The captured audio is analyzed on-device (RMS / peak /
+// level, mic-logic.js) and never played back and never uploaded: only
+// the processed numbers ride the wire.
+//
 // The page connects SAME-ORIGIN (io() with no URL): over plain HTTP
 // that is the performer port; under the App's trusted-HTTPS entry it
 // is the entry origin — zero page branches on which it is (#138).
 
 const P = window.PNDS;
 const S = window.SensorLogic;
+const ML = window.MicLogic;
 const R = window.PNDS_RENDER;
 
 // No App bridge on a phone: the page picks its locale from the device
@@ -35,10 +45,12 @@ app.innerHTML =
   '<p class="hint" id="device-label"></p>' +
   sensorCardHtml("tilt") +
   sensorCardHtml("motion") +
+  sensorCardHtml("mic") +
   "</div>";
 
 function sensorCardHtml(sensor) {
-  const title = sensor === "tilt" ? T.tiltTitle : T.motionTitle;
+  const title =
+    sensor === "tilt" ? T.tiltTitle : sensor === "motion" ? T.motionTitle : T.micTitle;
   return (
     '<div class="card" id="card-' + sensor + '">' +
     '<div class="sensor-head">' +
@@ -57,6 +69,7 @@ const deviceEl = document.getElementById("device-label");
 const els = {
   tilt: sensorEls("tilt"),
   motion: sensorEls("motion"),
+  mic: sensorEls("mic"),
 };
 
 function sensorEls(sensor) {
@@ -113,7 +126,7 @@ const heartbeatTimer = setInterval(() => {
 
 // ------------------------------------------------------------ sensors
 
-const lastShown = { tilt: null, motion: null };
+const lastShown = { tilt: null, motion: null, mic: null };
 
 const controller = new S.SensorController(
   {
@@ -161,6 +174,107 @@ for (const sensor of S.SENSOR_IDS) {
   });
 }
 
+// ------------------------------------------------------------ microphone
+
+function stopStreamTracks(stream) {
+  for (const track of stream.getTracks()) {
+    track.stop();
+  }
+}
+
+// The mic's analysis plumbing. openAnalyser builds the graph and
+// NOTHING else: the stream feeds the analyser only — never a
+// destination — so the captured audio is never played back (no echo,
+// ever). close() tears the whole thing down: tracks stopped, context
+// closed — the exclusive resource is fully released.
+function openAnalyser(stream, blockSize) {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  const context = new AudioContextClass();
+  const source = context.createMediaStreamSource(stream);
+  const analyser = context.createAnalyser();
+
+  analyser.fftSize = blockSize;
+  source.connect(analyser);
+
+  // Safari sometimes hands over a suspended context even inside the
+  // grant chain; analysis only flows while it runs.
+  if (context.state === "suspended") {
+    context.resume().catch(() => {});
+  }
+
+  return {
+    sampleRate: context.sampleRate,
+    read(block) {
+      analyser.getFloatTimeDomainData(block);
+    },
+    close() {
+      try {
+        source.disconnect();
+      } catch {
+        // Already torn down — nothing to release twice.
+      }
+
+      stopStreamTracks(stream);
+
+      if (typeof context.close === "function") {
+        context.close().catch(() => {});
+      }
+    },
+  };
+}
+
+const mic = new ML.MicController(
+  {
+    now: () => performance.now(),
+    // A non-secure context hides navigator.mediaDevices entirely — the
+    // controller reports "unsupported" and the note says why (HTTPS).
+    getUserMedia:
+      navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function"
+        ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
+        : null,
+    releaseStream: stopStreamTracks,
+    openAnalyser,
+    schedule: (fn, intervalMs) => {
+      const id = setInterval(fn, intervalMs);
+      return () => clearInterval(id);
+    },
+  },
+  {
+    onState: renderMicState,
+    onStart: (permission) => {
+      socket.emit(P.events.sensorStart, { sensor: "mic", permission });
+      renderMicState();
+    },
+    onStop: () => {
+      socket.emit(P.events.sensorStop, { sensor: "mic" });
+      renderMicState();
+    },
+    onPermission: (permission) => {
+      socket.emit(P.events.sensorPermission, { sensor: "mic", permission });
+      renderMicState();
+    },
+    onSend: (sample, seq) => {
+      if (deviceId !== null) {
+        socket.emit(P.events.sensorSample, {
+          sensor: "mic",
+          seq,
+          mic: sample,
+        });
+      }
+
+      renderSample("mic", sample, seq);
+    },
+  },
+);
+
+els.mic.button.addEventListener("click", () => {
+  if (isCapturing(mic.stateOf())) {
+    mic.stop();
+  } else {
+    mic.start();
+  }
+});
+
 function isCapturing(state) {
   return state === "on" || state === "starting";
 }
@@ -169,17 +283,23 @@ function isCapturing(state) {
 
 // Backgrounded pages pause capture and say so; coming back resumes the
 // sensors the user left ON — stopped ones stay stopped (nothing ever
-// restarts capture on its own).
+// restarts capture on its own). The mic RELEASES its stream here (an
+// exclusive resource must not outlive the foreground) and re-acquires
+// silently on return.
 function pauseCapture() {
   controller.pause();
+  mic.pause();
   socket.emit(P.events.sensorPause);
   renderStates();
+  renderMicState();
 }
 
 function resumeCapture() {
   controller.resume();
+  mic.resume();
   socket.emit(P.events.sensorResume);
   renderStates();
+  renderMicState();
 }
 
 document.addEventListener("visibilitychange", () => {
@@ -252,16 +372,57 @@ function renderSensorState(sensor) {
 
 function renderSample(sensor, sample, seq) {
   lastShown[sensor] = { sample, seq };
+  els[sensor].values.innerHTML = R.rowsFor(sensor, sample, T);
+}
 
-  let html;
+function renderMicState() {
+  const state = mic.stateOf();
+  const note = els.mic.note;
+  const button = els.mic.button;
 
-  if (sensor === "tilt") {
-    html = R.tiltRows(sample, T);
-  } else {
-    html = R.motionRows(sample, T);
+  button.classList.toggle("stop", isCapturing(state));
+  button.textContent = isCapturing(state) ? T.stop : T.enable;
+
+  if (mic.paused && isCapturing(state)) {
+    note.textContent = T.paused;
+    note.classList.add("bad");
+    return;
   }
 
-  els[sensor].values.innerHTML = html;
+  note.classList.remove("bad");
+
+  switch (state) {
+    case "starting":
+      note.textContent = T.permissionAsk;
+      break;
+    case "denied":
+      note.textContent = T.permissionDenied;
+      note.classList.add("bad");
+      break;
+    case "unsupported":
+      // The mic's own unsupported note: a plain-HTTP page has no
+      // navigator.mediaDevices at all — the fix is the secure context,
+      // not a browser change.
+      note.textContent = T.micUnsupported;
+      note.classList.add("bad");
+      break;
+    case "error":
+      note.textContent = T.error;
+      note.classList.add("bad");
+      break;
+    case "on":
+      note.textContent = "";
+      break;
+    default:
+      // Stopped: the frozen last sample stays readable in the values
+      // block; the note says the capture ended.
+      note.textContent = lastShown.mic ? T.stopped : "";
+  }
+
+  if (state === "on" && lastShown.mic === null) {
+    els.mic.values.innerHTML = R.naSpan(T.noData);
+  }
 }
 
 renderStates();
+renderMicState();

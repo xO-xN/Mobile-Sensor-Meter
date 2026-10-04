@@ -1,9 +1,10 @@
 // Mobile Sensor Meter — shared value rendering (both pages).
 //
 // The performer readout and the monitor cards render the SAME sample
-// shapes (tilt angles, motion values), so the zero-vs-null rule lives
-// here exactly once: a real zero renders as a number with its unit, a
-// missing field renders as the WORD "unavailable" — never folded.
+// shapes (tilt angles, motion values, mic levels), so the zero-vs-null
+// rule lives here exactly once: a real zero renders as a number with
+// its unit, a missing field renders as the WORD "unavailable" — never
+// folded.
 //
 // Works as a plain browser global (window.PNDS_RENDER) and as a Node
 // module; the copy table T (shared.js `copy.<locale>.performer|monitor`)
@@ -26,12 +27,12 @@
     return '<span class="value na">' + text + "</span>";
   }
 
-  function numOrNa(value, unit, T) {
+  function numOrNa(value, unit, T, decimals = 1) {
     if (value === null || value === undefined) {
       return naSpan(T.unavailable);
     }
 
-    return '<span class="value">' + value.toFixed(1) + " " + unit + "</span>";
+    return '<span class="value">' + value.toFixed(decimals) + " " + unit + "</span>";
   }
 
   // The value rows render whatever block they are handed — the raw wire
@@ -64,6 +65,36 @@
           : '<span class="value">' + motion.shakeCount + "</span>",
       )
     );
+  }
+
+  // The mic rows. rms and peak are normalized float-PCM amplitudes
+  // (unit FS — the fraction of digital full scale, [0, 1]); level is
+  // dBFS (20·log10 of RMS, floored at −90 — mic-logic.js). UNCALIBRATED
+  // meter numbers, never physical dB SPL; the trailing note says so on
+  // both pages. sampleRate is a fact, not a magnitude — no decimals.
+  function micRows(mic, T) {
+    return (
+      row(T.rms, numOrNa(mic.rms, "FS", T, 4)) +
+      row(T.peak, numOrNa(mic.peak, "FS", T, 4)) +
+      row(T.level, numOrNa(mic.level, "dBFS", T, 1)) +
+      row(T.sampleRate, numOrNa(mic.sampleRate, "Hz", T, 0)) +
+      '<div class="meter-note">' + T.micMeterNote + "</div>"
+    );
+  }
+
+  // Which rows render which sensor's block — the ONE place that knows
+  // (both pages call this; the monitor's smoothing and the phone's
+  // readout share it).
+  function rowsFor(sensor, block, T) {
+    if (sensor === "tilt") {
+      return tiltRows(block, T);
+    }
+
+    if (sensor === "mic") {
+      return micRows(block, T);
+    }
+
+    return motionRows(block, T);
   }
 
   // ------------------------------------------------------------
@@ -135,6 +166,8 @@
     numOrNa,
     tiltRows,
     motionRows,
+    micRows,
+    rowsFor,
     DISCONNECTED_HIDE_AFTER_MS,
     visibleDeviceIds,
     approach,

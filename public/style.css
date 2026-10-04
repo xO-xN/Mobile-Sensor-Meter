@@ -1,4 +1,4 @@
-/* Mobile Sensor Diagnostics — both pages.
+/* Mobile Sensor Meter — both pages.
  *
  * Plain DOM, no p5. Light theme, centered flex column, one card per
  * sensor (performer) / per device (monitor); values are the content —
@@ -106,6 +106,14 @@ h1 {
 .value.na {
   color: var(--muted);
   font-weight: 400;
+}
+
+/* The mic rows' units footnote: what FS / dBFS mean, so the numbers on
+ * both pages carry their own caveat (uncalibrated meter values). */
+.meter-note {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 4px 0 0;
 }
 
 /* ---------- state chips ---------- */

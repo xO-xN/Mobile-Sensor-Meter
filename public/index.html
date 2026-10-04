@@ -47,9 +47,11 @@
         document.write('\x3Cscript src="locale.js"\x3E\x3C/script\x3E');
         document.write('\x3Cscript src="monitor.js"\x3E\x3C/script\x3E');
       } else {
-        // sensor-logic.js is the performer page's capture layer; the
-        // monitor never runs it.
+        // sensor-logic.js / mic-logic.js are the performer page's
+        // capture layers (motion sensors and the microphone); the
+        // monitor never runs them.
         document.write('\x3Cscript src="sensor-logic.js"\x3E\x3C/script\x3E');
+        document.write('\x3Cscript src="mic-logic.js"\x3E\x3C/script\x3E');
         document.write('\x3Cscript src="locale.js"\x3E\x3C/script\x3E');
         document.write('\x3Cscript src="performer.js"\x3E\x3C/script\x3E');
       }

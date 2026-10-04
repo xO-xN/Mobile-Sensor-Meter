@@ -1,8 +1,10 @@
 // Performer page wiring: the join/token flow, the per-sensor enable/stop
 // buttons driving the REAL controller code (loaded with a fake window
 // platform — the "API stand-in" boundary), the phone readout rendering
-// the sample it SENDS (same values, unavailable-vs-zero), and the
-// visibility pause path.
+// the sample it SENDS (same values, unavailable-vs-zero), the
+// visibility pause path, and the microphone leg (#143): grant/denial,
+// the exclusive-resource release on stop and backgrounding, the silent
+// re-acquisition on return, and real zeros for a silent room.
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -84,6 +86,84 @@ function loadPerformerPage(options = {}) {
 
   const ioCalls = [];
   let clock = options.clock === undefined ? 0 : options.clock;
+
+  // The mic stand-ins: getUserMedia responders, a fake Web Audio graph
+  // whose analyser fills from a scriptable signal, and counters for
+  // every exclusive-resource teardown the spec (#143) pins.
+  const intervals = new Map(); // setInterval registry — tests pump it
+  let intervalSeq = 0;
+  const micHarness = {
+    gumCalls: [],
+    contextsCreated: 0,
+    contextsClosed: 0,
+    tracksStopped: 0,
+    analysers: [],
+    fill: options.micFill || ((block) => block.fill(0)),
+  };
+
+  class FakeAnalyser {
+    constructor() {
+      this.fftSize = 0;
+      micHarness.analysers.push(this);
+    }
+
+    getFloatTimeDomainData(block) {
+      micHarness.fill(block);
+    }
+  }
+
+  class FakeMediaStreamSource {
+    connect() {}
+    disconnect() {}
+  }
+
+  class FakeAudioContext {
+    constructor() {
+      micHarness.contextsCreated += 1;
+      this.sampleRate = 48000;
+      this.state = "running";
+    }
+
+    createMediaStreamSource() {
+      return new FakeMediaStreamSource();
+    }
+
+    createAnalyser() {
+      return new FakeAnalyser();
+    }
+
+    resume() {
+      return Promise.resolve();
+    }
+
+    close() {
+      micHarness.contextsClosed += 1;
+      return Promise.resolve();
+    }
+  }
+
+  function fakeStream() {
+    return {
+      getTracks: () => [
+        {
+          stop: () => {
+            micHarness.tracksStopped += 1;
+          },
+        },
+      ],
+    };
+  }
+
+  function defaultGetUserMedia(constraints) {
+    micHarness.gumCalls.push(constraints);
+
+    if (options.gum === "deny") {
+      return Promise.reject(Object.assign(new Error("denied"), { name: "NotAllowedError" }));
+    }
+
+    return Promise.resolve(fakeStream());
+  }
+
   const sandbox = {
     console,
     // A clock that advances per read: the page tests assert presence
@@ -96,13 +176,26 @@ function loadPerformerPage(options = {}) {
       },
     },
     setTimeout,
-    setInterval: () => 0,
-    clearInterval: () => {},
+    setInterval: (fn) => {
+      intervalSeq += 1;
+      intervals.set(intervalSeq, fn);
+      return intervalSeq;
+    },
+    clearInterval: (id) => {
+      intervals.delete(id);
+    },
+    AudioContext: FakeAudioContext,
     localStorage: {
       getItem: (key) => (storage.has(key) ? storage.get(key) : null),
       setItem: (key, value) => storage.set(key, String(value)),
     },
-    navigator: { language: options.language || "en" },
+    navigator: {
+      language: options.language || "en",
+      mediaDevices:
+        options.mediaDevices === null
+          ? undefined
+          : { getUserMedia: options.getUserMedia || defaultGetUserMedia },
+    },
     location: { hostname: "localhost", search: "", origin: "http://localhost:6868" },
     DeviceOrientationEvent: options.orientationEvent,
     DeviceMotionEvent: options.motionEvent,
@@ -160,6 +253,7 @@ function loadPerformerPage(options = {}) {
   run("shared.js");
   run("locale.js");
   run("sensor-logic.js");
+  run("mic-logic.js");
   run("render.js");
   run("performer.js");
 
@@ -189,6 +283,19 @@ function loadPerformerPage(options = {}) {
     values: (sensor) => elements.get("values-" + sensor),
     conn: elements.get("conn-status"),
     device: elements.get("device-label"),
+    mic: micHarness,
+    // Fires every live interval once (the mic's 16 ms tick and the
+    // heartbeat alike — tests filter by event name). The fake clock
+    // advances 250 ms per read, so every fired tick passes both gates.
+    pumpIntervals: () => {
+      for (const fn of [...intervals.values()]) {
+        fn();
+      }
+    },
+    // Live intervals beyond the page-load heartbeat (id 1): the mic's
+    // tick is the only other interval user.
+    micIntervalCount: () =>
+      [...intervals.keys()].filter((id) => id > 1).length,
   };
 }
 
@@ -336,4 +443,185 @@ test("heartbeats carry no sensor values", () => {
     page.emitted.filter(([e]) => e.startsWith("pnds:sensor:sample")).length,
     0,
   );
+});
+
+// ------------------------------------------------------------
+// The microphone leg (#143)
+// ------------------------------------------------------------
+
+const HALF_SCALE_SQUARE = (block) => {
+  for (let i = 0; i < block.length; i += 1) {
+    block[i] = i % 2 === 0 ? 0.25 : -0.25;
+  }
+};
+
+const flushMicrotasks = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
+test("enabling the mic grants, notifies the server, and sends the ANALYZED values", async () => {
+  const page = loadPerformerPage({ micFill: HALF_SCALE_SQUARE });
+  connectAndJoin(page);
+  page.emitted.length = 0;
+
+  page.button("mic").dispatch("click");
+  await flushMicrotasks();
+
+  const start = page.emitted.find(([e]) => e === "pnds:sensor:start");
+  assert.ok(start, "the server must be told the capture started");
+  assert.equal(start[1].sensor, "mic");
+  assert.equal(start[1].permission, "granted");
+  // Raw diagnostics constraints: every browser "enhancement" off.
+  assert.equal(page.mic.gumCalls.length, 1);
+  assert.equal(page.mic.gumCalls[0].audio.echoCancellation, false);
+  assert.equal(page.mic.gumCalls[0].audio.noiseSuppression, false);
+  assert.equal(page.mic.gumCalls[0].audio.autoGainControl, false);
+
+  page.pumpIntervals();
+
+  const sample = page.emitted.find(([e]) => e === "pnds:sensor:sample");
+  assert.ok(sample, "a sample must be sent");
+  assert.equal(sample[1].sensor, "mic");
+  assert.equal(sample[1].seq, 1);
+  assert.ok(Math.abs(sample[1].mic.rms - 0.25) < 1e-6);
+  assert.equal(sample[1].mic.sampleRate, 48000);
+
+  // The readout binds to the SENT sample — values, units and the
+  // uncalibrated-meter note all render.
+  const html = page.values("mic").innerHTML;
+  assert.match(html, /0\.2500 FS/);
+  assert.match(html, /dBFS/);
+  assert.match(html, /Uncalibrated/);
+});
+
+test("a silent room sends REAL zeros — never unavailable", async () => {
+  const page = loadPerformerPage(); // the default fill is silence
+  connectAndJoin(page);
+
+  page.button("mic").dispatch("click");
+  await flushMicrotasks();
+  page.pumpIntervals();
+
+  const sample = page.emitted.find(([e]) => e === "pnds:sensor:sample");
+  assert.equal(sample[1].mic.rms, 0);
+  assert.equal(sample[1].mic.peak, 0);
+  assert.equal(sample[1].mic.level, -90); // the documented floor
+
+  const html = page.values("mic").innerHTML;
+  assert.match(html, /0\.0000 FS/);
+  assert.doesNotMatch(html, /RMS<\/span><span class="value na">/);
+});
+
+test("without a secure context the mic reads unsupported, with the HTTPS reason", async () => {
+  const page = loadPerformerPage({ mediaDevices: null });
+  connectAndJoin(page);
+  page.emitted.length = 0;
+
+  page.button("mic").dispatch("click");
+  await flushMicrotasks();
+
+  const permission = page.emitted.find(([e]) => e === "pnds:sensor:permission");
+  assert.ok(permission, "the unsupported fact must reach the server");
+  assert.equal(permission[1].sensor, "mic");
+  assert.equal(permission[1].permission, "unsupported");
+  assert.equal(page.mic.gumCalls.length, 0);
+  assert.match(page.note("mic").textContent, /HTTPS/);
+});
+
+test("a denied request is a diagnosable state, not an error", async () => {
+  const page = loadPerformerPage({ gum: "deny" });
+  connectAndJoin(page);
+  page.emitted.length = 0;
+
+  page.button("mic").dispatch("click");
+  await flushMicrotasks();
+
+  const permission = page.emitted.find(([e]) => e === "pnds:sensor:permission");
+  assert.equal(permission[1].permission, "denied");
+  assert.equal(
+    page.emitted.filter(([e]) => e === "pnds:sensor:start").length,
+    0,
+  );
+  assert.match(page.note("mic").textContent, /Permission denied/);
+});
+
+test("stopping the mic releases the exclusive resource; late ticks send nothing", async () => {
+  const page = loadPerformerPage({ micFill: HALF_SCALE_SQUARE });
+  connectAndJoin(page);
+
+  page.button("mic").dispatch("click");
+  await flushMicrotasks();
+  page.pumpIntervals();
+
+  const contexts = page.mic.contextsCreated;
+  const analyserCount = page.mic.analysers.length;
+
+  page.button("mic").dispatch("click"); // the button is now "Stop"
+  await flushMicrotasks();
+
+  const stop = page.emitted.find(([e]) => e === "pnds:sensor:stop");
+  assert.ok(stop, "the server must be told the capture stopped");
+  assert.equal(stop[1].sensor, "mic");
+
+  assert.equal(page.mic.tracksStopped, 1); // the stream is released
+  assert.equal(page.mic.contextsClosed, contexts); // the context is closed
+  assert.equal(page.micIntervalCount(), 0); // the tick is cancelled
+  assert.equal(page.mic.analysers.length, analyserCount);
+
+  page.emitted.length = 0;
+  page.pumpIntervals();
+  assert.equal(
+    page.emitted.filter(([e]) => e === "pnds:sensor:sample").length,
+    0,
+  );
+});
+
+test("backgrounding releases the mic; returning re-acquires it silently", async () => {
+  const page = loadPerformerPage({ micFill: HALF_SCALE_SQUARE });
+  connectAndJoin(page);
+
+  page.button("mic").dispatch("click");
+  await flushMicrotasks();
+  page.pumpIntervals();
+  const gumCallsBefore = page.mic.gumCalls.length;
+  const startsBefore = page.emitted.filter(([e]) => e === "pnds:sensor:start").length;
+  const contexts = page.mic.contextsCreated;
+  assert.equal(startsBefore, 1); // the user's enable did notify the server
+
+  page.sandbox.document.visibilityState = "hidden";
+  page.fireDocument("visibilitychange");
+
+  assert.ok(page.emitted.some(([e]) => e === "pnds:sensor:pause"));
+  assert.equal(page.mic.contextsClosed, contexts); // released, not suspended
+  assert.equal(page.mic.tracksStopped, 1);
+  assert.equal(page.micIntervalCount(), 0);
+  page.emitted.length = 0;
+  page.pumpIntervals(); // nothing ticks in the background
+  assert.equal(
+    page.emitted.filter(([e]) => e === "pnds:sensor:sample").length,
+    0,
+  );
+
+  page.sandbox.document.visibilityState = "visible";
+  page.fireDocument("visibilitychange");
+
+  assert.ok(page.emitted.some(([e]) => e === "pnds:sensor:resume"));
+  await flushMicrotasks();
+
+  assert.equal(page.mic.gumCalls.length, gumCallsBefore + 1); // re-acquired
+  assert.equal(page.mic.contextsCreated, contexts + 1);
+  // Silent: the server's record is the truth to keep — no second
+  // sensorStart after the resume, so the frozen sample survives the
+  // backgrounding (emitted was re-baselined before returning visible).
+  assert.equal(
+    page.emitted.filter(([e]) => e === "pnds:sensor:start").length,
+    0,
+  );
+
+  page.emitted.length = 0;
+  page.pumpIntervals();
+  const sample = page.emitted.find(([e]) => e === "pnds:sensor:sample");
+  assert.ok(sample, "samples flow again after the silent re-acquisition");
+  assert.equal(sample[1].seq, 2); // the seq keeps climbing — provably new
 });

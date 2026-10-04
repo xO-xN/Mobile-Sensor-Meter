@@ -191,6 +191,72 @@ test("zero is a real reading; missing stays null — never folded", () => {
   assert.equal(sensors.motion.sample.motion.includesGravity, true);
 });
 
+test("mic samples: silence survives as REAL zeros, missing stays null, late results are refused", () => {
+  const h = joinedHub();
+  h.join(1, 1000);
+  h.start(1, "mic", { at: 1100, permission: "granted" });
+
+  // A silent room: rms/peak are real zeros, the level sits at its
+  // documented floor, the capture's rate rides along.
+  assert.equal(
+    h.sample(
+      1,
+      "mic",
+      { seq: 1, mic: { rms: 0, peak: 0, level: -90, sampleRate: 48000 } },
+      { at: 1200 },
+    ).status,
+    "accepted",
+  );
+
+  const device = h.snapshot(1250).devices[1];
+  assert.deepEqual(device.sensors.mic.sample.mic, {
+    rms: 0,
+    peak: 0,
+    level: -90,
+    sampleRate: 48000,
+  });
+  assert.equal(device.sensors.mic.freshness, FRESHNESS.live);
+
+  // Partially provided blocks keep per-field facts — never folded.
+  h.sample(
+    1,
+    "mic",
+    { seq: 2, mic: { rms: 0.05, peak: null, level: -26, sampleRate: null } },
+    { at: 1300 },
+  );
+  assert.deepEqual(h.snapshot(1350).devices[1].sensors.mic.sample.mic, {
+    rms: 0.05,
+    peak: null,
+    level: -26,
+    sampleRate: null,
+  });
+
+  // Malformed shapes are refused; a stop freezes the record; a late
+  // sample from the stopped capture never lands.
+  assert.equal(h.sample(1, "mic", { seq: 3 }, { at: 1400 }).reason, "malformed-payload");
+  h.stop(1, "mic", { at: 1450 });
+  assert.equal(
+    h.sample(
+      1,
+      "mic",
+      { seq: 4, mic: { rms: 1, peak: 1, level: 0, sampleRate: 48000 } },
+      { at: 1500 },
+    ).reason,
+    "not-capturing",
+  );
+  assert.equal(h.snapshot(1550).devices[1].sensors.mic.sample.mic.rms, 0.05);
+  assert.equal(h.snapshot(1550).devices[1].sensors.mic.freshness, FRESHNESS.off);
+});
+
+test("every device carries all three sensor records from join on", () => {
+  const h = joinedHub();
+  const sensors = h.snapshot(1100).devices[1].sensors;
+
+  assert.deepEqual(Object.keys(sensors), ["tilt", "motion", "mic"]);
+  assert.equal(sensors.mic.permission, "unknown");
+  assert.equal(sensors.mic.freshness, FRESHNESS.off);
+});
+
 test("permission facts ride along without restarting capture", () => {
   const h = joinedHub();
   h.join(1, 1000);

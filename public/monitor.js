@@ -7,9 +7,10 @@
 // leaves the roster — a ghost join (a link preview, a stray tab) never
 // sits on the console forever; the returning device recovers its id.
 //
-// Each card shows both sensors' capture/permission state, the DERIVED
-// freshness (waiting / live / stopped updating / paused / off /
-// disconnected — never a heartbeat dressed as data), and the values.
+// Each card shows every sensor's capture/permission state (tilt, motion
+// and the mic — #143), the DERIVED freshness (waiting / live / stopped
+// updating / paused / off / disconnected — never a heartbeat dressed as
+// data), and the values.
 // Values render at FRAME RATE (requestAnimationFrame): each number
 // exponentially approaches the newest sample (the SuperCollider
 // control-rate idea — the wire computes at ~30 Hz, the display presents
@@ -29,7 +30,7 @@ const P = window.PNDS;
 const L = window.PNDS_LOCALE;
 const R = window.PNDS_RENDER;
 
-const SENSORS = ["tilt", "motion"];
+const SENSORS = Object.keys(P.sensorIds); // tilt, motion, mic — shared.js owns the order
 
 // Smoothing time constant: the display glides ~2/3 of the way to a new
 // value in one τ. 100 ms reads fluid without feeling laggy against a
@@ -214,26 +215,35 @@ function paintSensor(id, sensor, device, T, dtMs) {
 
   smoothed[id][sensor] = current;
 
-  el.innerHTML =
-    (sensor === "tilt" ? R.tiltRows(current, T) : R.motionRows(current, T)) +
-    R.row(T.freshness, ageText(device.sensors[sensor], T));
+  el.innerHTML = R.rowsFor(sensor, current, T) + R.row(T.freshness, ageText(device.sensors[sensor], T));
 }
 
 function sampleValueBlock(sensor, sample) {
-  return sensor === "tilt" ? sample.tilt : sample.motion;
+  return sample[sensor];
 }
 
 function cloneValueBlock(sensor, block) {
-  return sensor === "tilt"
-    ? { alpha: block.alpha, beta: block.beta, gamma: block.gamma }
-    : {
-        x: block.x,
-        y: block.y,
-        z: block.z,
-        includesGravity: block.includesGravity,
-        intensity: block.intensity,
-        shakeCount: block.shakeCount,
-      };
+  if (sensor === "tilt") {
+    return { alpha: block.alpha, beta: block.beta, gamma: block.gamma };
+  }
+
+  if (sensor === "mic") {
+    return {
+      rms: block.rms,
+      peak: block.peak,
+      level: block.level,
+      sampleRate: block.sampleRate,
+    };
+  }
+
+  return {
+    x: block.x,
+    y: block.y,
+    z: block.z,
+    includesGravity: block.includesGravity,
+    intensity: block.intensity,
+    shakeCount: block.shakeCount,
+  };
 }
 
 function advanceValueBlock(sensor, current, target, dtMs) {
@@ -242,6 +252,16 @@ function advanceValueBlock(sensor, current, target, dtMs) {
       alpha: R.approachField(current.alpha, target.alpha, dtMs, SMOOTH_TAU_MS, true),
       beta: R.approachField(current.beta, target.beta, dtMs, SMOOTH_TAU_MS, false),
       gamma: R.approachField(current.gamma, target.gamma, dtMs, SMOOTH_TAU_MS, false),
+    };
+  }
+
+  if (sensor === "mic") {
+    return {
+      rms: R.approachField(current.rms, target.rms, dtMs, SMOOTH_TAU_MS, false),
+      peak: R.approachField(current.peak, target.peak, dtMs, SMOOTH_TAU_MS, false),
+      level: R.approachField(current.level, target.level, dtMs, SMOOTH_TAU_MS, false),
+      // A fact, not a magnitude — the capture's rate, unsmoothed.
+      sampleRate: target.sampleRate,
     };
   }
 
@@ -279,8 +299,7 @@ function deviceHtml(device, T) {
     "<h2>" + T.device + device.id + "</h2>" +
     freshnessChip(device.connected ? deviceOverallFreshness(device) : P.freshness.disconnected, T) +
     "</div>" +
-    sensorBlockHtml(device, device.sensors.tilt, T, true) +
-    sensorBlockHtml(device, device.sensors.motion, T, false) +
+    SENSORS.map((sensor) => sensorBlockHtml(device, device.sensors[sensor], T)).join("") +
     "</div>"
   );
 }
@@ -315,8 +334,8 @@ function deviceOverallFreshness(device) {
   return worst;
 }
 
-function sensorBlockHtml(device, sensor, T, isTilt) {
-  const sensorId = isTilt ? "tilt" : "motion";
+function sensorBlockHtml(device, sensor, T) {
+  const sensorId = sensor.sensor;
   const sample = sensor.sample;
 
   // The value rows live in their own container the frame loop rewrites;
@@ -326,16 +345,14 @@ function sensorBlockHtml(device, sensor, T, isTilt) {
 
   if (sample === null) {
     values = R.row(T.freshness, R.naSpan(T.unavailable));
-  } else if (isTilt) {
-    values = R.tiltRows(sample.tilt, T);
   } else {
-    values = R.motionRows(sample.motion, T);
+    values = R.rowsFor(sensorId, sampleValueBlock(sensorId, sample), T);
   }
 
   return (
     '<div class="sensor-block">' +
     "<h3>" +
-    (isTilt ? T.tilt : T.motion) +
+    T[sensorId] +
     freshnessChip(sensor.freshness, T) +
     permissionChip(sensor.permission, T) +
     "</h3>" +

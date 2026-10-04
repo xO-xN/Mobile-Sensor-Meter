@@ -25,6 +25,43 @@ class Element {
   }
 }
 
+// A stand-in for the handpose mini window: a fixed client size and a
+// recording 2d context, so tests assert WHAT was drawn (mirrored
+// coordinates, cleared ground) instead of trusting CSS.
+function makeFakeCanvas() {
+  const calls = [];
+
+  return {
+    calls,
+    clientWidth: 320,
+    clientHeight: 240,
+    width: 0,
+    height: 0,
+    getContext(type) {
+      calls.push(["getContext", type]);
+
+      return {
+        clearRect: (...args) => calls.push(["clearRect", ...args]),
+        beginPath: () => calls.push(["beginPath"]),
+        moveTo: (...args) => calls.push(["moveTo", ...args]),
+        lineTo: (...args) => calls.push(["lineTo", ...args]),
+        arc: (...args) => calls.push(["arc", ...args]),
+        stroke: () => calls.push(["stroke"]),
+        fill: () => calls.push(["fill"]),
+        set strokeStyle(value) {
+          calls.push(["strokeStyle", value]);
+        },
+        set fillStyle(value) {
+          calls.push(["fillStyle", value]);
+        },
+        set lineWidth(value) {
+          calls.push(["lineWidth", value]);
+        },
+      };
+    },
+  };
+}
+
 function loadMonitorPage() {
   const elements = new Map();
   const handlers = {};
@@ -50,7 +87,10 @@ function loadMonitorPage() {
     document: {
       getElementById(id) {
         if (!elements.has(id)) {
-          elements.set(id, new Element());
+          elements.set(
+            id,
+            id.startsWith("hp-mini-") ? makeFakeCanvas() : new Element(),
+          );
         }
         return elements.get(id);
       },
@@ -456,7 +496,18 @@ test("the handpose block shows summary meters and an expandable keypoint detail 
       at: 5000,
       staleAfterMs: 2000,
       devices: {
-        1: handposeEntry(1, [{ x: 0.5, y: 0.25 }, { x: null, y: 0.5 }], 3),
+        1: handposeEntry(
+          1,
+          [
+            { x: 0.5, y: 0.25 },
+            { x: null, y: 0.5 },
+            { x: 0.2, y: 0.2 },
+            { x: 0.3, y: 0.2 },
+            { x: 0.4, y: 0.2 },
+            { x: 0.25, y: 0.75 },
+          ],
+          3,
+        ),
       },
     },
   });
@@ -476,6 +527,22 @@ test("the handpose block shows summary meters and an expandable keypoint detail 
   assert.match(kp, /0\.250/);
   assert.match(kp, /unavailable/); // a missing coordinate is a word
 
+  // The mini skeleton window: painted once per seq with MIRRORED x
+  // (same selfie view as the phone), skeleton pairs from shared.js.
+  assert.match(html, /<canvas class="hp-mini" id="hp-mini-1">/);
+  const mini = page.elements.get("hp-mini-1");
+  const calls = mini.calls;
+  assert.deepEqual(calls[0], ["getContext", "2d"]);
+  assert.deepEqual(calls[1], ["clearRect", 0, 0, 320, 240]);
+  // The first drawable connected pair is [2,3]: mirrored x = (1-x)*320.
+  assert.deepEqual(calls.find((c) => c[0] === "moveTo"), ["moveTo", 256, 48]);
+  assert.deepEqual(calls.find((c) => c[0] === "lineTo"), ["lineTo", 224, 48]);
+  // Five drawable keypoints become five dots; the null one is skipped.
+  const arcs = calls.filter((c) => c[0] === "arc");
+  assert.equal(arcs.length, 5);
+  assert.equal(arcs[0][1], 160); // (1 - 0.5) * 320 — mirrored wrist x
+  assert.equal(arcs[0][2], 60); // 0.25 * 240
+
   // A NEWER sample refreshes the detail rows in place (the element is
   // never recreated — the operator's <details> stays as they left it).
   page.handlers.state({
@@ -493,5 +560,11 @@ test("the handpose block shows summary meters and an expandable keypoint detail 
   assert.match(
     page.sandbox.document.getElementById("values-1-handpose").innerHTML,
     /label">Hands<\/span><span class="value">0<\/span>/,
+  );
+  // The mini window clears on no-hand — nothing drawn after the clear.
+  const lastClear = calls.map((c) => c[0]).lastIndexOf("clearRect");
+  assert.ok(lastClear > 0, "the no-hand sample must repaint the mini");
+  assert.ok(
+    !calls.slice(lastClear).some((c) => c[0] === "arc" || c[0] === "moveTo"),
   );
 });

@@ -232,7 +232,9 @@ function paintSensor(id, sensor, device, T, dtMs) {
 // The handpose detail table refreshes ONLY when a newer sample arrives
 // (seq changed): the coordinates are facts, and touching the DOM less
 // keeps the operator's <details> exactly as open as they left it —
-// the frame loop never recreates that element.
+// the frame loop never recreates that element. The same trigger paints
+// the mini skeleton window: the hand's last shape, held like the
+// values are held.
 const lastKpSeq = {}; // device id -> the seq the detail rows were built from
 
 function paintKeypointDetails(id, record, T) {
@@ -252,6 +254,82 @@ function paintKeypointDetails(id, record, T) {
 
   if (el) {
     el.innerHTML = R.handposeKeypointRows(sample.handpose, T, P.keypointNames);
+  }
+
+  paintHandposeMini(id, sample.handpose);
+}
+
+// The mini skeleton window: the latest keypoint FACTS drawn once per
+// seq (never per frame — there is nothing to smooth in a shape). x is
+// mirrored to match the phone's selfie preview, like the phone's own
+// overlay; the numbers in the detail table stay unmirrored (the model
+// frame). An empty hand clears the canvas — the cleared window IS the
+// no-hand display.
+function paintHandposeMini(id, block) {
+  const canvas = document.getElementById("hp-mini-" + id);
+
+  if (!canvas || typeof canvas.getContext !== "function") {
+    return;
+  }
+
+  const width = canvas.clientWidth || 0;
+  const height = canvas.clientHeight || 0;
+
+  if (width === 0 || height === 0) {
+    return;
+  }
+
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    return;
+  }
+
+  context.clearRect(0, 0, width, height);
+
+  if (!Array.isArray(block.keypoints) || block.keypoints.length === 0) {
+    return;
+  }
+
+  const px = (point) => [(1 - point.x) * width, point.y * height];
+  const drawable = (point) =>
+    point && point.x !== null && point.y !== null && point.x !== undefined && point.y !== undefined;
+
+  context.strokeStyle = "rgba(90, 79, 243, 0.9)";
+  context.lineWidth = 2;
+
+  for (const [from, to] of P.handConnections) {
+    const a = block.keypoints[from];
+    const b = block.keypoints[to];
+
+    if (!drawable(a) || !drawable(b)) {
+      continue;
+    }
+
+    const [x1, y1] = px(a);
+    const [x2, y2] = px(b);
+    context.beginPath();
+    context.moveTo(x1, y1);
+    context.lineTo(x2, y2);
+    context.stroke();
+  }
+
+  context.fillStyle = "#16a34a";
+
+  for (const point of block.keypoints) {
+    if (!drawable(point)) {
+      continue;
+    }
+
+    const [x, y] = px(point);
+    context.beginPath();
+    context.arc(x, y, 3, 0, Math.PI * 2);
+    context.fill();
   }
 }
 
@@ -409,15 +487,17 @@ function sensorBlockHtml(device, sensor, T) {
     values = R.rowsFor(sensorId, sampleValueBlock(sensorId, sample), T);
   }
 
-  // The handpose keypoint detail: an expandable <details> the frame
-  // loop NEVER recreates (only its inner rows refresh on a newer seq),
-  // so an operator reading coordinates keeps it open across frames.
-  // The initial rows are painted by the rebuild's own paintValues(0)
-  // pass — the same path that refreshes them.
+  // The handpose leg: a persistent mini window with the hand's last
+  // shape (painted on new seqs by the frame loop, never rebuilt) above
+  // the expandable coordinate detail — the frame loop NEVER recreates
+  // either (the mini repaints in place; the <details> keeps its open
+  // state), so an operator watching a hand keeps both across frames.
+  // The initial paint happens in the rebuild's own paintValues(0) pass.
   let detail = "";
 
   if (sensorId === "handpose") {
     detail =
+      '<canvas class="hp-mini" id="hp-mini-' + device.id + '"></canvas>' +
       '<details class="kp-details"><summary>' + T.keypointsLabel + "</summary>" +
       '<div class="kp-rows" id="kpd-' + device.id + '"></div></details>';
   }

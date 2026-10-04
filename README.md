@@ -44,7 +44,7 @@ Adapted to the App's trusted-HTTPS entry contract (`scoreServer.supportsPerforme
 
 Permissions: on iOS 13+ each motion sensor asks once per origin inside the Enable tap. The microphone and the handpose camera ask via getUserMedia — which requires a **secure context**: over plain HTTP `navigator.mediaDevices` does not exist, and the card reads "unsupported — needs a secure (HTTPS) context" rather than failing silently. "granted", "denied", "unsupported" and "not asked" all render distinctly on the monitor; denial is a diagnosable result, not an error. For diagnostics, every browser "enhancement" (echo cancellation, noise suppression, AGC) is disabled on the mic stream — the meter must see the raw input.
 
-Device states on the monitor: `live` / `waiting for samples` / `stopped updating` / `paused` / `off` / `disconnected` — per sensor, plus the permission chip. A disconnected device's card leaves the roster after a 10 s grace window.
+Device states on the monitor: `live` / `waiting for samples` / `stopped updating` / `paused` / `off` / `disconnected` — per sensor, plus the permission chip. A disconnected device's card leaves the roster after a 10 s grace window. The handpose card carries a persistent **mini skeleton window**: the hand's latest keypoints drawn on a dark ground, mirrored x like the phone's selfie preview (the numeric coordinate table stays unmirrored — the model frame), repainted only on newer samples in place; an empty hand clears the window.
 
 ### Getting Started
 
@@ -168,7 +168,7 @@ PNDS 仪表工程（Mobile Sensor Meter）：检验手机浏览器提供的传�
 
 权限：iOS 13+ 运动传感器每个 origin 在「启用」点击时询问一次；麦克风与手部摄像头经 getUserMedia 请求——它**要求安全上下文**：纯 HTTP 下 `navigator.mediaDevices` 不存在，卡片会显示「需要 HTTPS 安全上下文」而不是无说明地失败。「已授权 / 被拒绝 / 不支持 / 未询问」在 monitor 上分别显示——拒绝是可诊断的结果，不是错误。为做诊断，麦克风流关闭了浏览器全部「增强」（回声消除、降噪、自动增益）——表必须看到原始输入。
 
-设备状态：`实时 / 等待样本 / 已停止更新 / 已暂停 / 未采集 / 已断开`（每传感器一列）+ 权限标志。已断开设备的卡片在 10 秒宽限期后从名册消失。
+设备状态：`实时 / 等待样本 / 已停止更新 / 已暂停 / 未采集 / 已断开`（每传感器一列）+ 权限标志。已断开设备的卡片在 10 秒宽限期后从名册消失。手部卡片带一个常驻的**骨架小窗**：把最新关键点画在深色底上，x 方向镜像、与手机自拍预览一致（数值坐标表保持未镜像——模型坐标系）；只在有更新样本时原位重绘，无手时窗口清空。
 
 ### 快速开始
 

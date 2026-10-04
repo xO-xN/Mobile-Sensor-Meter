@@ -234,6 +234,19 @@ button:disabled {
   font-size: 12px;
 }
 
+/* The monitor's mini skeleton window (#144): the hand's last shape on
+ * a dark ground, mirroring x like the phone's selfie preview. Painted
+ * on new seqs in place — the element is never recreated by the frame
+ * loop. */
+.hp-mini {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #101014;
+  border-radius: 10px;
+  margin: 4px 0 6px;
+}
+
 /* ---------- monitor page ---------- */
 
 .mon {

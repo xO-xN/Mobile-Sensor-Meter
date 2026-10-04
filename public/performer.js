@@ -373,6 +373,34 @@ const handpose = new HPL.HandPoseController(
         : null;
     },
     loadScript: loadVendorScript,
+    // The cheap GPU check the controller runs before paying for the
+    // ml5 bundle: a page without WebGL (iOS Low Power Mode, restricted
+    // webviews) cannot run the model at all. Returns null when fine,
+    // the user-facing reason when not. Unprobeable → null (fail open:
+    // the model loader's own error still speaks).
+    webglProbe() {
+      const canvas = document.createElement("canvas");
+
+      if (typeof canvas.getContext !== "function") {
+        return null;
+      }
+
+      const gl = canvas.getContext("webgl2") || canvas.getContext("webgl");
+
+      if (!gl) {
+        return T.webglUnavailable;
+      }
+
+      if (typeof gl.getExtension === "function") {
+        const lose = gl.getExtension("WEBGL_lose_context");
+
+        if (lose && typeof lose.loseContext === "function") {
+          lose.loseContext(); // the probe must not hold a context slot
+        }
+      }
+
+      return null;
+    },
     createModel: wrapMl5HandPose,
     scriptSrc: "/vendor/ml5.min.js",
     modelUrls: {
@@ -545,11 +573,19 @@ function renderHandposeState() {
       note.textContent = T.modelLoading;
       break;
     case "model-error":
-      note.textContent = T.modelError;
+      // The REAL reason first (WebGL probe, script fetch, tfjs init).
+      // The fetch:handpose advice fits exactly one failure — an assets
+      // inventory that says files are missing — and that hint lives on
+      // the stopped card, not here.
+      note.textContent = handpose.failureDetail()
+        ? T.modelFailedPrefix + " " + handpose.failureDetail()
+        : T.modelError;
       note.classList.add("bad");
       break;
     case "error":
-      note.textContent = T.inferenceError;
+      note.textContent = handpose.failureDetail()
+        ? T.inferenceFailedPrefix + " " + handpose.failureDetail()
+        : T.inferenceError;
       note.classList.add("bad");
       break;
     case "running":

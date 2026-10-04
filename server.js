@@ -65,7 +65,7 @@ if (cliOptions.help) {
   process.exit(0);
 }
 
-const serverConfig = resolveServerConfig(manifest);
+const serverConfig = resolveServerConfig(manifest, process.env);
 const hostLanIp = resolveHostLanIp(process.env.PNDS_HOST_IP);
 
 // The one full performer URL every outward surface shares — QR, the

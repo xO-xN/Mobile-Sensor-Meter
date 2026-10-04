@@ -153,7 +153,11 @@
           cameraAsk: "Tap Enable to grant camera access",
           handposeUnsupported: "Camera needs a secure (HTTPS) context — or is unsupported here",
           modelError: "Model failed to load — run npm run fetch:handpose on the host",
+          modelFailedPrefix: "Model load failed:",
           inferenceError: "Inference failed — try enabling again",
+          inferenceFailedPrefix: "Inference failed:",
+          webglUnavailable:
+            "WebGL unavailable on this page — the hand model needs GPU access (iOS Low Power Mode disables WebGL)",
           handposeConvention: "Keypoints normalized [0, 1], origin top-left, unmirrored (model frame)",
           unavailable: "unavailable",
           permissionDenied: "Permission denied — enable in browser settings",
@@ -249,7 +253,11 @@
           cameraAsk: "点「启用」授予摄像头权限",
           handposeUnsupported: "摄像头需要 HTTPS 安全上下文——或此浏览器不支持",
           modelError: "模型加载失败——请在 Host 上运行 npm run fetch:handpose",
+          modelFailedPrefix: "模型加载失败：",
           inferenceError: "推理失败——请重新启用",
+          inferenceFailedPrefix: "推理失败：",
+          webglUnavailable:
+            "此页面无法使用 WebGL——手部模型需要 GPU（iOS 低电量模式会禁用 WebGL）",
           handposeConvention: "关键点归一化 [0, 1]，原点左上，未镜像（模型坐标系）",
           unavailable: "不可用",
           permissionDenied: "权限被拒绝 — 请在浏览器设置中允许",

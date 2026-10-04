@@ -219,7 +219,11 @@ function loadPerformerPage(options = {}) {
       handPose(config) {
         hpHarness.scriptConfigs.push(config);
         return {
-          ready: Promise.resolve(),
+          // options.modelReadyError scripts a tfjs/loader failure; the
+          // rejection is consumed by the controller's catch.
+          ready: options.modelReadyError
+            ? Promise.reject(new Error(options.modelReadyError))
+            : Promise.resolve(),
           model: {
             dispose() {
               hpHarness.disposedModels += 1;
@@ -281,6 +285,17 @@ function loadPerformerPage(options = {}) {
         element.onload = null;
         element.onerror = null;
         element.src = "";
+        if (tag === "canvas") {
+          // The WebGL probe's stand-in: options.webgl === false reads
+          // as a page with no GPU context (Low Power Mode & friends);
+          // otherwise a healthy context that can be released.
+          element.getContext = () =>
+            options.webgl === false
+              ? null
+              : {
+                  getExtension: () => ({ loseContext() {} }),
+                };
+        }
         return element;
       },
       head: {
@@ -811,7 +826,7 @@ test("no hand is a RESULT: zero hands, empty keypoints — never unavailable", a
   assert.ok(sample[1].handpose.rateHz > 0); // inference DID run
 });
 
-test("a failed vendor script load (assets missing) is model-error and the preview keeps running", async () => {
+test("a failed vendor script load is model-error WITH THE REASON; the preview keeps running", async () => {
   const page = loadPerformerPage();
   connectAndJoin(page);
 
@@ -822,10 +837,47 @@ test("a failed vendor script load (assets missing) is model-error and the previe
   page.scripts[0].onerror();
   await flushMicrotasks();
 
-  assert.match(page.note("handpose").textContent, /fetch:handpose/);
+  // The note names what actually failed (the assets inventory said
+  // everything is present — the npm advice would be a wrong turn).
+  const note = page.note("handpose").textContent;
+  assert.match(note, /Model load failed/);
+  assert.match(note, /vendor\/ml5\.min\.js/);
+  assert.doesNotMatch(note, /fetch:handpose/);
   // The camera is still attached — the preview is the evidence that
   // the camera path works while the model path does not.
   assert.notEqual(page.elements.get("hp-video").srcObject, null);
+});
+
+test("a model-init failure shows the underlying tfjs/loader reason — not the fetch:handpose advice", async () => {
+  const page = loadPerformerPage({ modelReadyError: "HTTP 404 fetching model.json" });
+  connectAndJoin(page);
+
+  page.button("handpose").dispatch("click");
+  await flushMicrotasks();
+
+  assert.equal(page.scripts.length, 1);
+  page.scripts[0].onload();
+  await flushMicrotasks();
+
+  const note = page.note("handpose").textContent;
+  assert.match(note, /Model load failed/);
+  assert.match(note, /HTTP 404 fetching model\.json/); // verbatim reason
+  assert.doesNotMatch(note, /fetch:handpose/); // the assets ARE there
+  assert.notEqual(page.elements.get("hp-video").srcObject, null);
+});
+
+test("a page without WebGL fails fast: no script download, the GPU reason in the note", async () => {
+  const page = loadPerformerPage({ webgl: false });
+  connectAndJoin(page);
+
+  page.button("handpose").dispatch("click");
+  await flushMicrotasks();
+
+  const note = page.note("handpose").textContent;
+  assert.match(note, /WebGL unavailable/);
+  assert.equal(page.scripts.length, 0); // the 4.5 MB bundle stays unsent
+  assert.equal(page.hp.scriptConfigs.length, 0);
+  assert.notEqual(page.elements.get("hp-video").srcObject, null); // camera live
 });
 
 test("stopping handpose releases loop, model and camera", async () => {
@@ -942,7 +994,8 @@ test("an inference fault lands in its own state with the camera still live", asy
   page.pumpIntervals();
   await flushMicrotasks();
 
-  assert.match(page.note("handpose").textContent, /Inference failed/);
+  // The fault's own reason rides along with the state.
+  assert.match(page.note("handpose").textContent, /Inference failed: backend lost/);
   assert.equal(page.hp.disposedModels, 1); // the suspect model is gone
   assert.notEqual(page.elements.get("hp-video").srcObject, null); // camera kept
   assert.equal(page.micIntervalCount(), 0);

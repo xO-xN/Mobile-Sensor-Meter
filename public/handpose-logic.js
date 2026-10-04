@@ -17,7 +17,11 @@
 // - Everything the phone loads is SAME-ORIGIN: the ml5 script and both
 //   tfjs models come from this server's /vendor/ paths — no CDN at
 //   runtime. A resource the page cannot load is a diagnosable
-//   "model-error" state, never a fallback to some remote URL.
+//   "model-error" state, never a fallback to some remote URL. The
+//   technical REASON behind a model/inference failure is kept
+//   (failureDetail()) and the card shows it verbatim — this app is
+//   itself the diagnostics tool, and a bare "failed" once sent a user
+//   hunting for a missing npm script that was present all along.
 // - The camera is an exclusive resource like the mic: user Stop,
 //   pagehide and backgrounding release it (tracks stopped, preview
 //   detached). The MODEL is memory, not an exclusive device — pause
@@ -80,6 +84,22 @@
 
   function readNumber(value) {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
+  }
+
+  // The verbatim reason behind a model/inference failure. Platform
+  // errors carry messages worth reading as-is (tfjs names its real
+  // failures — fetch, WebGL, shapes); anything else gets a stable
+  // placeholder rather than silence.
+  function failureText(error) {
+    if (error && typeof error.message === "string" && error.message !== "") {
+      return error.message;
+    }
+
+    if (typeof error === "string" && error !== "") {
+      return error;
+    }
+
+    return "unknown error";
   }
 
   // ------------------------------------------------------------
@@ -196,10 +216,20 @@
       this.cancelTick = null;
       this.rate = new InferenceRate();
       this.notifiedStart = false; // onStart emitted since last stop?
+      this.failure = null; // the reason behind the last model/inference failure
     }
 
     stateOf() {
       return this.state;
+    }
+
+    // The technical reason behind the last "model-error"/"error"
+    // (script fetch, tfjs init, WebGL probe, inference fault) — null
+    // once healthy or freshly restarted. The card shows it verbatim;
+    // the npm-asset advice belongs to the OTHER failure (an assets
+    // inventory that actually says files are missing).
+    failureDetail() {
+      return this.failure;
     }
 
     // The user's explicit enable. Must run inside a user gesture — the
@@ -214,6 +244,7 @@
         return;
       }
 
+      this.failure = null; // a fresh attempt starts with a clean slate
       this.acquireCamera();
     }
 
@@ -301,8 +332,25 @@
     // Stage two: the local vendor script, then the model from the
     // local URLs. Any failure here is "model-error" — the CAMERA KEEPS
     // RUNNING (the preview is itself a diagnostic: it proves the camera
-    // path works while the model path does not).
+    // path works while the model path does not), and the REASON is
+    // kept for the card to show.
     loadModel(attempt) {
+      // The cheap GPU question first: without a WebGL context the model
+      // cannot run, and knowing it now saves the phone the 4.5 MB
+      // script download. A platform without the probe fails OPEN —
+      // the model loader's own error still speaks.
+      const webglProblem =
+        typeof this.platform.webglProbe === "function"
+          ? this.platform.webglProbe()
+          : null;
+
+      if (webglProblem) {
+        this.failure = webglProblem;
+        this.state = "model-error";
+        this.emit("onState", this.state);
+        return;
+      }
+
       this.state = "loading-model";
       this.emit("onState", this.state);
 
@@ -340,11 +388,12 @@
             this.beginLoop(attempt);
           });
         })
-        .catch(() => {
+        .catch((error) => {
           if (attempt !== this.attempt) {
             return;
           }
 
+          this.failure = failureText(error);
           this.state = "model-error";
           this.emit("onState", this.state);
         });
@@ -406,7 +455,7 @@
           this.lastSample = sample;
           this.emit("onSend", sample, this.seq);
         })
-        .catch(() => {
+        .catch((error) => {
           this.busy = false;
 
           if (attempt !== this.attempt) {
@@ -415,10 +464,11 @@
 
           // An inference FAULT (distinct from "no hand"): stop the
           // loop, dispose the suspect model, keep the camera — the
-          // preview plus this state is exactly the diagnosis. The next
-          // Enable starts over.
+          // preview plus this state (plus the kept reason) is exactly
+          // the diagnosis. The next Enable starts over.
           this.stopLoop();
           this.disposeModel(this.model);
+          this.failure = failureText(error);
           this.state = "error";
           this.emit("onState", this.state);
         });
@@ -433,6 +483,7 @@
       this.disposeModel(this.model);
       this.releaseCamera();
       this.state = "off";
+      this.failure = null; // a stopped card carries no stale reason
 
       if (this.notifiedStart) {
         this.notifiedStart = false;

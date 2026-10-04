@@ -14,14 +14,21 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
+const net = require("node:net");
 
 const { io } = require("socket.io-client");
 
 const PROJECT_ROOT = path.join(__dirname, "..");
-const PERFORMER_URL = "http://127.0.0.1:6868";
-const MONITOR_URL = "http://127.0.0.1:6869";
-const HEALTH_URL = `${PERFORMER_URL}/__pnds/health`;
 const ENTRY_URL = "https://show.example.org:8443/";
+
+// Scratch ports via the PNDS_*_PORT overrides: `npm test` must work
+// beside a LIVE instance the App spawned on the manifest ports
+// (6868/6869) — it binds them for real.
+let PERFORMER_URL = null;
+let MONITOR_URL = null;
+let HEALTH_URL = null;
+const performerPort = () => Number(new URL(PERFORMER_URL).port);
+const monitorPort = () => Number(new URL(MONITOR_URL).port);
 
 const { events: EVENTS } = require("../public/shared");
 
@@ -32,12 +39,33 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let child;
 
-function startServer() {
+// A port the OS is not holding right now: bind-to-0, read, release.
+// (A fixed high port would still be a guess; this is not.)
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+    server.on("error", reject);
+  });
+}
+
+async function startServer() {
+  const [performer, monitor] = await Promise.all([freePort(), freePort()]);
+  PERFORMER_URL = `http://127.0.0.1:${performer}`;
+  MONITOR_URL = `http://127.0.0.1:${monitor}`;
+  HEALTH_URL = `${PERFORMER_URL}/__pnds/health`;
+
   child = spawn(process.execPath, [path.join(PROJECT_ROOT, "server.js")], {
     env: {
       ...process.env,
       PNDS_HOST_IP: "127.0.0.1",
       PNDS_PERFORMER_URL: ENTRY_URL,
+      PNDS_PERFORMER_PORT: String(performer),
+      PNDS_MONITOR_PORT: String(monitor),
       SENSOR_STALE_AFTER_MS: String(STALE_MS),
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -165,8 +193,8 @@ test("health reports the none-mode contract on both ports", async () => {
     assert.equal(payload.audioMode, "none");
     assert.equal(payload.audio.status, "disabled");
     assert.equal(payload.audio.target, null);
-    assert.equal(payload.scoreServer.performerPort, 6868);
-    assert.equal(payload.scoreServer.monitorPort, 6869);
+    assert.equal(payload.scoreServer.performerPort, performerPort());
+    assert.equal(payload.scoreServer.monitorPort, monitorPort());
   }
 });
 

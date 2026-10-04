@@ -49,6 +49,33 @@ test("resolveServerConfig reads ports and rejects equals", () => {
   );
 });
 
+test("PNDS_PERFORMER_PORT / PNDS_MONITOR_PORT override the manifest (test-suite scratch ports)", () => {
+  const config = resolveServerConfig(loadManifest(PROJECT_ROOT), {
+    PNDS_PERFORMER_PORT: "46901",
+    PNDS_MONITOR_PORT: "46902",
+  });
+
+  assert.equal(config.performerPort, 46901);
+  assert.equal(config.monitorPort, 46902);
+
+  // The overrides are validated like everything else.
+  assert.throws(
+    () =>
+      resolveServerConfig(loadManifest(PROJECT_ROOT), {
+        PNDS_PERFORMER_PORT: "not-a-port",
+      }),
+    /PNDS_PERFORMER_PORT/,
+  );
+  assert.throws(
+    () =>
+      resolveServerConfig(loadManifest(PROJECT_ROOT), {
+        PNDS_PERFORMER_PORT: "46901",
+        PNDS_MONITOR_PORT: "46901",
+      }),
+    /must be different/,
+  );
+});
+
 test("performer URL falls back to the LAN HTTP spelling without the env", () => {
   assert.equal(
     resolvePerformerUrl({}, "192.168.1.10", 6868),

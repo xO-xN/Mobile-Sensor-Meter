@@ -204,6 +204,9 @@ function makePlatform(options = {}) {
       };
     },
     scriptSrc: "/vendor/ml5.min.js",
+    ...(options.webglProbe === undefined
+      ? {}
+      : { webglProbe: () => options.webglProbe }),
     modelUrls: {
       detectorModelUrl: "/vendor/handpose/detector/model.json",
       landmarkModelUrl: "/vendor/handpose/landmark/model.json",
@@ -345,10 +348,15 @@ test("a failed script load (missing vendor assets) is model-error; the CAMERA KE
   // the camera path works while the model path does not.
   assert.equal(platform.state.timers.size, 0);
 
+  // The card shows the REAL reason — the script that failed to load,
+  // not a blanket "run the fetch script" (the assets may all exist).
+  assert.match(controller.failureDetail(), /vendor\/ml5\.min\.js/);
+
   // Recoverable: the next Enable starts the whole pipeline over.
   controller.start();
   await flush();
   assert.equal(controller.stateOf(), "loading-model");
+  assert.equal(controller.failureDetail(), null); // clean slate
 });
 
 test("a failed model init (weights missing / WebGL unavailable) is model-error too", async () => {
@@ -366,6 +374,31 @@ test("a failed model init (weights missing / WebGL unavailable) is model-error t
   await flush();
 
   assert.equal(controller.stateOf(), "model-error");
+  // The underlying tfjs/loader message survives verbatim.
+  assert.equal(controller.failureDetail(), "404 model.json");
+});
+
+test("a WebGL-less page fails FAST: no script download, no model — and the camera keeps proving", async () => {
+  const platform = makePlatform({ webglProbe: "WebGL unavailable on this page" });
+  const controller = new HPL.HandPoseController(platform, {});
+
+  controller.start();
+  await flush();
+
+  assert.equal(controller.stateOf(), "model-error");
+  assert.equal(controller.failureDetail(), "WebGL unavailable on this page");
+  assert.equal(platform.state.scripts.length, 0); // the 4.5 MB stays unsent
+  assert.equal(platform.state.modelConfigs.length, 0);
+  assert.equal(platform.state.attached, 1); // the preview is still live
+  assert.equal(platform.state.detached, 0);
+
+  // A platform without the probe at all fails OPEN (the model loader's
+  // own error still speaks): the happy path is untouched.
+  const openPlatform = makePlatform();
+  const openController = new HPL.HandPoseController(openPlatform, {});
+  openController.start();
+  await flush();
+  assert.equal(openController.stateOf(), "loading-model");
 });
 
 test("stop releases everything: loop, model, camera — and emits the server stop", async () => {
@@ -541,6 +574,12 @@ test("an inference FAULT stops the loop, disposes the model, keeps the camera", 
   assert.equal(platform.state.disposedModels, 1); // the suspect model is gone
   assert.equal(platform.state.timers.size, 0); // the loop is stopped
   assert.equal(platform.state.detached, 0); // the preview keeps running
+  assert.equal(controller.failureDetail(), "backend lost"); // the real reason
+
+  // stop() clears the stale reason — a stopped card carries no ghost.
+  controller.stop();
+  await flush();
+  assert.equal(controller.failureDetail(), null);
 });
 
 test("an inference result arriving after pause is dropped, and busy ticks never overlap", async () => {

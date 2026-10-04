@@ -248,11 +248,85 @@ test("mic samples: silence survives as REAL zeros, missing stays null, late resu
   assert.equal(h.snapshot(1550).devices[1].sensors.mic.freshness, FRESHNESS.off);
 });
 
-test("every device carries all three sensor records from join on", () => {
+test("handpose samples: no-hand is a result, keypoints capped, late results refused", () => {
+  const h = joinedHub();
+  h.join(1, 1000);
+  h.start(1, "handpose", { at: 1100, permission: "granted" });
+
+  // A no-hand inference is a COMPLETED result: zero hands, an EMPTY
+  // keypoint list, meters riding along — never "missing".
+  assert.equal(
+    h.sample(
+      1,
+      "handpose",
+      {
+        seq: 1,
+        handpose: { hands: 0, confidence: null, keypoints: [], inferMs: 18.2, rateHz: 9.5 },
+      },
+      { at: 1200 },
+    ).status,
+    "accepted",
+  );
+
+  let device = h.snapshot(1250).devices[1];
+  assert.equal(device.sensors.handpose.freshness, FRESHNESS.live);
+  assert.equal(device.sensors.handpose.sample.handpose.hands, 0);
+  assert.deepEqual(device.sensors.handpose.sample.handpose.keypoints, []);
+
+  // A detected hand: keypoints capped at the 21 canonical landmarks,
+  // per-field facts preserved (a null coordinate stays null).
+  const keypoints = [];
+
+  for (let i = 0; i < 30; i += 1) {
+    keypoints.push({ x: i / 30, y: null });
+  }
+
+  h.sample(
+    1,
+    "handpose",
+    { seq: 2, handpose: { hands: 1, confidence: 0.9, keypoints, inferMs: 25, rateHz: 10 } },
+    { at: 1300 },
+  );
+  const stored = h.snapshot(1350).devices[1].sensors.handpose.sample.handpose;
+  assert.equal(stored.hands, 1);
+  assert.equal(stored.keypoints.length, 21); // capped
+  assert.equal(stored.keypoints[0].x, 0);
+  assert.equal(stored.keypoints[1].y, null); // missing, never zero
+
+  // A missing keypoint array travels as null (missing ≠ empty).
+  h.sample(
+    1,
+    "handpose",
+    { seq: 3, handpose: { hands: 1, confidence: 0.9, inferMs: 25, rateHz: 10 } },
+    { at: 1400 },
+  );
+  assert.equal(h.snapshot(1450).devices[1].sensors.handpose.sample.handpose.keypoints, null);
+
+  // Malformed shapes are refused; stop freezes; late samples rejected.
+  assert.equal(
+    h.sample(1, "handpose", { seq: 4 }, { at: 1450 }).reason,
+    "malformed-payload",
+  );
+  h.stop(1, "handpose", { at: 1500 });
+  assert.equal(
+    h.sample(
+      1,
+      "handpose",
+      { seq: 5, handpose: { hands: 1, confidence: 1, keypoints: [], inferMs: 1, rateHz: 1 } },
+      { at: 1600 },
+    ).reason,
+    "not-capturing",
+  );
+  device = h.snapshot(1650).devices[1];
+  assert.equal(device.sensors.handpose.sample.handpose.hands, 1); // frozen
+  assert.equal(device.sensors.handpose.freshness, FRESHNESS.off);
+});
+
+test("every device carries all four sensor records from join on", () => {
   const h = joinedHub();
   const sensors = h.snapshot(1100).devices[1].sensors;
 
-  assert.deepEqual(Object.keys(sensors), ["tilt", "motion", "mic"]);
+  assert.deepEqual(Object.keys(sensors), ["tilt", "motion", "mic", "handpose"]);
   assert.equal(sensors.mic.permission, "unknown");
   assert.equal(sensors.mic.freshness, FRESHNESS.off);
 });

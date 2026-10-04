@@ -6,9 +6,9 @@
 
 ## English
 
-A PNDS score project that meters what phones expose to the browser — **tilt** (device orientation, α/β/γ), **motion** (acceleration, shake) and **microphone level** (RMS / peak / dBFS) — end to end: the phone captures and processes its own sensor data, displays it live, and streams the processed values to the monitor over Socket.IO. The monitor shows every device's values, permissions, connection and data freshness side by side, keyed by a stable device identity that survives reconnects.
+A PNDS score project that meters what phones expose to the browser — **tilt** (device orientation, α/β/γ), **motion** (acceleration, shake), **microphone level** (RMS / peak / dBFS) and **hand pose** (local ml5.js HandPose keypoints) — end to end: the phone captures and processes its own sensor data, displays it live, and streams the processed values to the monitor over Socket.IO. The monitor shows every device's values, permissions, connection and data freshness side by side, keyed by a stable device identity that survives reconnects.
 
-Network-only on the server: no audio engine, no SuperCollider; the server always runs with audio disabled (`none` mode). No camera; the microphone is used only after the user's explicit Enable tap, analyzed on-device into level numbers, and never recorded or played back — no raw media of any kind leaves the phone, only processed numbers. No hub, no cloud. Stack: Node.js, Express, Socket.IO.
+Network-only on the server: no audio engine, no SuperCollider; the server always runs with audio disabled (`none` mode). No camera; the camera and microphone are used only after the user's explicit Enable taps, processed on-device (hand keypoints, level numbers), and never recorded or played back — no raw media of any kind leaves the phone, only processed numbers. No cloud inference either: the handpose leg's ml5.js bundle and both TFJS models are served from this project's own origin (below). No hub, no cloud. Stack: Node.js, Express, Socket.IO.
 
 Adapted to the App's trusted-HTTPS entry contract (`scoreServer.supportsPerformerUrl: true`): the same project runs unchanged over plain HTTP, over the App's HTTPS entry, or over a standalone HTTPS trial (below).
 
@@ -21,7 +21,8 @@ Adapted to the App's trusted-HTTPS entry contract (`scoreServer.supportsPerforme
 - **Honest freshness**: "live" derives from actual sample timestamps only. A heartbeat can never dress stale data as live; a backgrounded page reads "paused"; a sensor that stopped updating reads "stopped updating"; authorized-but-sampleless reads "waiting for samples".
 - **Deliberate capture**: each sensor is enabled by an explicit tap (iOS requires the permission prompt inside a user gesture) and has an explicit stop. Late permission results and late sensor events after a stop never restart or mutate a stopped capture — a getUserMedia grant landing after the user stopped releases its stream immediately and reports the fact only.
 - **The mic is released, not paused**: the microphone is an exclusive resource, so Stop, page-leave and backgrounding all release the stream and the analysis graph (tracks stopped, AudioContext closed) — the phone's mic indicator goes dark. Returning to the foreground silently re-acquires if the user had left it on; a stopped capture never restarts itself. The captured audio is never played back (the analysis graph never connects to a destination) and never leaves the phone.
-- **Bounded rates, fluid display**: capture ≤60 Hz and send ≤30 Hz — two independent gates; only the latest processed sample is ever sent, so a disconnect never replays history. The monitor renders at frame rate (`requestAnimationFrame`), each value exponentially approaching the newest sample — the SuperCollider control-rate idea: low-rate computation, continuous presentation. No rate counters are shown anywhere.
+- **Hand pose, fully local (#144)**: the phone runs ml5.js 1.4.0's HandPose (tfjs runtime, WebGL — Safari WebGPU not required) with the **lite** palm-detector and landmark models, all served from THIS project's origin (`public/vendor/`, pinned by `npm run fetch:handpose`) — **zero CDN requests at runtime**. The camera and the model are separate stages with separate failures: the preview can be live while the model is missing (and the card says the fix), and a loaded model is not a completed inference. **No hand is a result** (hands: 0), never an error; an inference that throws is its own state. The camera is released on Stop / page-leave / backgrounding while the model stays loaded for a fast, silent resume; only the latest processed result rides the wire — never video.
+- **Bounded rates, fluid display**: capture ≤60 Hz and send ≤30 Hz — two independent gates; only the latest processed sample is ever sent, so a disconnect never replays history. The monitor renders at frame rate (`requestAnimationFrame`), each value exponentially approaching the newest sample — the SuperCollider control-rate idea: low-rate computation, continuous presentation. No rate counters anywhere — with one deliberate exception (#144): the handpose card shows its inference duration and update rate, because there they ARE the measurement.
 - **No ghost devices**: a device that disconnects stays on the monitor for a short grace window (a network blip must not flicker its card), then leaves the roster — a stray tab or link preview that joined once never sits there forever. Identity is unaffected: the returning phone recovers its device id.
 
 ### Units, permissions and states (the short manual)
@@ -35,8 +36,13 @@ Adapted to the App's trusted-HTTPS entry contract (`scoreServer.supportsPerforme
 | Mic RMS / peak | FS (fraction of full scale, [0, 1]) | Uncalibrated; `null` renders "unavailable" |
 | Mic level | dBFS (floor −90) | 20·log10 of RMS, floored; NOT physical dB SPL |
 | Mic sample rate | Hz | The phone's AudioContext rate for this capture |
+| Hand keypoints x / y | normalized [0, 1] | Origin top-left, x right, y down, UNmirrored (the model's frame — the selfie preview mirrors only visually); 21 MediaPipe landmarks, canonical order |
+| Hand count | count | 0 = "no hand detected" — a RESULT, never an error |
+| Hand confidence | model score | What the model provided; `null` renders "unavailable" |
+| Inference duration | ms | One detect() round-trip on the phone |
+| Update rate | Hz | Completions per second over a 2 s rolling window — actual inferences only |
 
-Permissions: on iOS 13+ each motion sensor asks once per origin inside the Enable tap. The microphone asks via getUserMedia — which requires a **secure context**: over plain HTTP `navigator.mediaDevices` does not exist, and the mic card reads "unsupported — needs a secure (HTTPS) context" rather than failing silently. "granted", "denied", "unsupported" and "not asked" all render distinctly on the monitor; denial is a diagnosable result, not an error. For diagnostics, every browser "enhancement" (echo cancellation, noise suppression, AGC) is disabled on the mic stream — the meter must see the raw input.
+Permissions: on iOS 13+ each motion sensor asks once per origin inside the Enable tap. The microphone and the handpose camera ask via getUserMedia — which requires a **secure context**: over plain HTTP `navigator.mediaDevices` does not exist, and the card reads "unsupported — needs a secure (HTTPS) context" rather than failing silently. "granted", "denied", "unsupported" and "not asked" all render distinctly on the monitor; denial is a diagnosable result, not an error. For diagnostics, every browser "enhancement" (echo cancellation, noise suppression, AGC) is disabled on the mic stream — the meter must see the raw input.
 
 Device states on the monitor: `live` / `waiting for samples` / `stopped updating` / `paused` / `off` / `disconnected` — per sensor, plus the permission chip. A disconnected device's card leaves the roster after a 10 s grace window.
 
@@ -47,7 +53,24 @@ npm install
 npm start    # performer: http://<Host-LAN-IP>:6868/ · monitor: http://<Host-LAN-IP>:6869/
 ```
 
-Scan the QR on the monitor with a phone, tap Enable on a sensor, tilt, shake — and for the mic, speak (or hold a silent room and watch the REAL zeros).
+Scan the QR on the monitor with a phone, tap Enable on a sensor, tilt, shake — for the mic, speak (or hold a silent room and watch the REAL zeros); for the hand, show it to the camera.
+
+### The local handpose assets
+
+Everything the handpose leg loads at runtime comes from this server's own origin — `public/vendor/` is committed and pinned:
+
+```
+public/vendor/ml5.min.js                        ml5.js 1.4.0 (bundles TFJS)
+public/vendor/handpose/detector/model.json      MediaPipe hand detector (lite)
+public/vendor/handpose/detector/group1-shard1of1.bin
+public/vendor/handpose/landmark/model.json      hand landmark model (lite)
+public/vendor/handpose/landmark/group1-shard1of1.bin
+public/vendor/handpose/PINNED.json              sources + sha256 provenance
+```
+
+`npm run fetch:handpose` re-verifies every file against its pinned sha256 and re-downloads only what changed (upstream changes fail loudly — re-pin deliberately). `GET /handpose/assets.json` reports the live inventory — including every shard name each model.json declares — and the phone's hand card names exactly what is missing instead of failing silently. `npm install && npm start` is fully offline: nothing here talks to a CDN at runtime.
+
+**Pending real-device verification** (the stand-in tests prove the logic; a phone proves the rest): the mirrored-preview/keypoint alignment in both orientations (portrait/landscape), the portrait coordinate mapping, and the achievable inference rate / duration on target devices.
 
 ### Standalone trusted-HTTPS trial
 
@@ -77,10 +100,13 @@ Self-signed certificates and private CAs are **not** a success path — phones d
 ```
 server.js       Entry: HTTP (both ports) + Socket.IO + health/shutdown
 lib/            Server core (config incl. performer-URL resolution, players
-                with durable claims, sensor hub, health, QR, lifecycle)
-public/         Browser side (dual-role single page + sensor-logic and
-                mic-logic, the capture/processing/controller code the
-                tests drive)
+                with durable claims, sensor hub, health, QR, lifecycle,
+                handpose asset inventory)
+public/         Browser side (dual-role single page + sensor-logic,
+                mic-logic and handpose-logic — the capture/processing/
+                controller code the tests drive)
+public/vendor/  The pinned local handpose assets (ml5 + both models)
+scripts/        fetch-handpose.mjs — pin/verify the vendor assets
 test/           Behavior tests (API stand-ins + real Socket.IO integration)
 docs/           The standalone HTTPS trial notes (https-trial.md)
 ```
@@ -104,9 +130,9 @@ MIT — see [LICENSE](LICENSE).
 
 ## 中文
 
-PNDS 仪表工程（Mobile Sensor Meter）：检验手机浏览器提供的传感器——**倾斜**（设备方向 α/β/γ）、**运动**（加速度、摇动）与**麦克风电平**（RMS / 峰值 / dBFS）——的完整链路。手机在自己本地采集与处理、实时显示自身数值，并把处理后的数值经 Socket.IO 送达 monitor；monitor 按稳定设备标识逐台显示数值、权限、连接与数据新鲜度，重连不串设备。
+PNDS 仪表工程（Mobile Sensor Meter）：检验手机浏览器提供的传感器——**倾斜**（设备方向 α/β/γ）、**运动**（加速度、摇动）、**麦克风电平**（RMS / 峰值 / dBFS）与**手部姿态**（本地 ml5.js HandPose 关键点）——的完整链路。手机在自己本地采集与处理、实时显示自身数值，并把处理后的数值经 Socket.IO 送达 monitor；monitor 按稳定设备标识逐台显示数值、权限、连接与数据新鲜度，重连不串设备。
 
-服务端纯网络：无音频引擎、无 SuperCollider，始终以 `none` 模式运行。无摄像头；麦克风只在用户主动点「启用」后使用、在手机本地分析为电平数值，从不录音、从不回放——任何原始媒体都不离开手机，只传处理后的数值。不依赖 hub 或云。
+服务端纯网络：无音频引擎、无 SuperCollider，始终以 `none` 模式运行。无摄像头作为数据；摄像头与麦克风只在用户主动点「启用」后使用、在手机本地处理（手部关键点、电平数值），从不录音、从不回放——任何原始媒体都不离开手机，只传处理后的数值。也无云推理：handpose 的 ml5.js 与两份 TFJS 模型全部由本工程自己的 origin 提供（见下）。不依赖 hub 或云。
 
 已适配 App 的可信 HTTPS 入口契约（`scoreServer.supportsPerformerUrl: true`）：同一份代码在纯 HTTP、App HTTPS 入口、独立 HTTPS 试验（见下）下行为一致。
 
@@ -119,7 +145,8 @@ PNDS 仪表工程（Mobile Sensor Meter）：检验手机浏览器提供的传�
 - **诚实的新鲜度**：「实时」只由真实样本时间戳决定——心跳冒充不了新样本；页面后台显示「已暂停」；停止更新显示「已停止更新」；授权了但没样本显示「等待样本」。
 - **主动采集**：每个传感器由用户点击启用（iOS 要求权限弹窗在用户手势内触发）、显式停止；停止后的迟到授权结果与迟到事件不会重启或改写已停止的采集——用户停止后才到达的 getUserMedia 授权会**立刻释放它带来的流**、只报告事实。
 - **麦克风是释放、不是暂停**：麦克风是独占资源，停止、离开页面、后台都**释放**流与分析图（停轨道、关 AudioContext）——手机的话筒指示灯熄灭。回到前台时若用户此前开着，则静默重新获取；已停止的采集绝不自行重启。采到的声音从不回放（分析图永不连 destination）、从不离开手机。
-- **限频有界、显示流畅**：采集 ≤60 Hz、发送 ≤30 Hz 两级独立限频；只发送最新处理值，断线不重放历史。monitor 以帧率（`requestAnimationFrame`）渲染，每个数值向最新样本指数逼近——SuperCollider control rate 的思路：低速率计算、连续呈现。页面各处不显示任何速率计数。
+- **手部姿态，完全本地（#144）**：手机运行 ml5.js 1.4.0 的 HandPose（tfjs runtime、WebGL——不要求 Safari WebGPU）与 **lite** 掌部检测 / 关键点模型，全部由**本工程自己的 origin** 提供（`public/vendor/`，`npm run fetch:handpose` 固定）——**运行时零 CDN 请求**。摄像头与模型是两个阶段、两种失败：预览可以活着而模型缺失（卡片会写明修法），模型就绪也不等于推理完成。**未检测到手是结果**（hands: 0），不是错误；推理抛错自成一态。摄像头在停止 / 离开页面 / 后台时释放，模型则保留供回前台快速静默恢复；线上只传最新处理结果——绝不传视频。
+- **限频有界、显示流畅**：采集 ≤60 Hz、发送 ≤30 Hz 两级独立限频；只发送最新处理值，断线不重放历史。monitor 以帧率（`requestAnimationFrame`）渲染，每个数值向最新样本指数逼近——SuperCollider control rate 的思路：低速率计算、连续呈现。页面各处不显示任何速率计数——唯一有意的例外是手部卡（#144）：它显示推理耗时与更新率，因为那正是被测的量。
 - **不留幽灵设备**：设备断开后卡片保留一个短暂宽限期（网络抖动不闪烁），随后从名册消失——误入的标签页或链接预览不会永远占着控制台。身份不受影响：回来的手机恢复原设备号。
 
 ### 单位、权限与状态（速查）
@@ -133,8 +160,13 @@ PNDS 仪表工程（Mobile Sensor Meter）：检验手机浏览器提供的传�
 | 麦克风 RMS / 峰值 | FS（满幅比例，[0, 1]） | 未经校准；缺失显示「不可用」 |
 | 麦克风电平 | dBFS（地板 −90） | RMS 的 20·log10，取地板；不是物理 dB SPL |
 | 麦克风采样率 | Hz | 本次采集的 AudioContext 采样率 |
+| 手部关键点 x / y | 归一化 [0, 1] | 原点左上、x 向右、y 向下，**未镜像**（模型坐标系；自拍预览仅视觉镜像）；21 个 MediaPipe 关键点、固定顺序 |
+| 手数 | 个 | 0 =「未检测到手」——是结果，不是错误 |
+| 手部置信度 | 模型分数 | 模型提供什么显示什么；缺失显示「不可用」 |
+| 推理耗时 | ms | 手机上一次 detect() 往返 |
+| 更新率 | Hz | 2 秒滚动窗口内的完成次数——只统计真实推理完成 |
 
-权限：iOS 13+ 运动传感器每个 origin 在「启用」点击时询问一次；麦克风经 getUserMedia 请求——它**要求安全上下文**：纯 HTTP 下 `navigator.mediaDevices` 不存在，麦克风卡会显示「需要 HTTPS 安全上下文」而不是无说明地失败。「已授权 / 被拒绝 / 不支持 / 未询问」在 monitor 上分别显示——拒绝是可诊断的结果，不是错误。为做诊断，麦克风流关闭了浏览器全部「增强」（回声消除、降噪、自动增益）——表必须看到原始输入。
+权限：iOS 13+ 运动传感器每个 origin 在「启用」点击时询问一次；麦克风与手部摄像头经 getUserMedia 请求——它**要求安全上下文**：纯 HTTP 下 `navigator.mediaDevices` 不存在，卡片会显示「需要 HTTPS 安全上下文」而不是无说明地失败。「已授权 / 被拒绝 / 不支持 / 未询问」在 monitor 上分别显示——拒绝是可诊断的结果，不是错误。为做诊断，麦克风流关闭了浏览器全部「增强」（回声消除、降噪、自动增益）——表必须看到原始输入。
 
 设备状态：`实时 / 等待样本 / 已停止更新 / 已暂停 / 未采集 / 已断开`（每传感器一列）+ 权限标志。已断开设备的卡片在 10 秒宽限期后从名册消失。
 
@@ -145,7 +177,24 @@ npm install
 npm start    # performer: http://<Host-LAN-IP>:6868/ · monitor: http://<Host-LAN-IP>:6869/
 ```
 
-用手机扫 monitor 上的二维码，点「启用」，倾斜、摇动；麦克风则对它说话（或对着安静的房间，看真实的零）。
+用手机扫 monitor 上的二维码，点「启用」，倾斜、摇动；麦克风则对它说话（或对着安静的房间，看真实的零）；手部则把手伸到摄像头前。
+
+### 手部姿态的本地资产
+
+handpose 运行时加载的一切都来自本服务器自己的 origin——`public/vendor/` 已提交并固定：
+
+```
+public/vendor/ml5.min.js                        ml5.js 1.4.0（内含 TFJS）
+public/vendor/handpose/detector/model.json      MediaPipe 掌部检测（lite）
+public/vendor/handpose/detector/group1-shard1of1.bin
+public/vendor/handpose/landmark/model.json      手部关键点模型（lite）
+public/vendor/handpose/landmark/group1-shard1of1.bin
+public/vendor/handpose/PINNED.json              来源与 sha256 溯源
+```
+
+`npm run fetch:handpose` 逐文件核对固定 sha256、只重下载有变化的（上游变化会显式失败——换版本必须有意重固定）。`GET /handpose/assets.json` 报告实时清单——包括每份 model.json 声明的全部分片名——手机端的手部卡片会点名缺了什么，而不是无说明地失败。`npm install && npm start` 完全离线可用：运行时不与任何 CDN 通信。
+
+**待真机核实**（替身测试证明的是逻辑；手机才能证明其余）：镜像预览与关键点叠加在竖屏 / 横屏两种方向下的对齐、竖屏坐标映射、以及目标设备上实际可达的推理速率 / 耗时。
 
 ### 独立可信 HTTPS 试验
 
@@ -175,9 +224,11 @@ npm start    # performer: http://<Host-LAN-IP>:6868/ · monitor: http://<Host-LA
 ```
 server.js       入口：双端口 HTTP + Socket.IO + health/关停
 lib/            服务端核心（含 performer URL 解析的 config、持久 claim 的
-                players、sensor hub、health、QR、lifecycle）
-public/         浏览器侧（双角色单页 + sensor-logic / mic-logic——测试驱动的
-                采集/处理/控制器代码）
+                players、sensor hub、health、QR、lifecycle、handpose 资产清单）
+public/         浏览器侧（双角色单页 + sensor-logic / mic-logic /
+                handpose-logic——测试驱动的采集/处理/控制器代码）
+public/vendor/  固定的本地 handpose 资产（ml5 + 两份模型）
+scripts/        fetch-handpose.mjs——固定/校验 vendor 资产
 test/           行为测试（API 替身 + 真实 Socket.IO 集成）
 docs/           独立 HTTPS 试验说明（https-trial.md）
 ```

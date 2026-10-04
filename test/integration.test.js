@@ -528,6 +528,102 @@ test("a backgrounded page reads paused", async () => {
   socket.close();
 });
 
+
+test("the handpose asset inventory endpoint reports the committed local assets", async () => {
+  const payload = await (await fetch(`${PERFORMER_URL}/handpose/assets.json`)).json();
+
+  assert.equal(payload.ok, true);
+  assert.deepEqual(payload.missing, []);
+  assert.equal(payload.runtime, "tfjs");
+  assert.equal(payload.ml5.file, "ml5.min.js");
+  assert.ok(payload.ml5.bytes > 1_000_000);
+  assert.deepEqual(payload.detector.declaredShards, ["group1-shard1of1.bin"]);
+  assert.deepEqual(payload.landmark.declaredShards, ["group1-shard1of1.bin"]);
+  assert.equal(payload.detector.shards[0].present, true);
+  assert.equal(payload.landmark.shards[0].present, true);
+});
+
+test("a handpose result reaches the monitor verbatim; no-hand survives as a result, late results are refused", async () => {
+  const socket = connect();
+  const joined = await join(socket);
+
+  socket.emit(EVENTS.sensorStart, { sensor: "handpose", permission: "granted" });
+
+  const waiting = await nextStateOn(
+    socket,
+    (state) => state.sensors.devices[joined.id]?.sensors.handpose.capture === "on",
+  );
+  assert.equal(waiting.sensors.devices[joined.id].sensors.handpose.freshness, "waiting");
+
+  // The model ran and found nothing: hands 0 with EMPTY keypoints and
+  // live meters — a result, never "missing" (#144).
+  socket.emit(EVENTS.sensorSample, {
+    sensor: "handpose",
+    seq: 7,
+    handpose: { hands: 0, confidence: null, keypoints: [], inferMs: 18.2, rateHz: 9.5 },
+  });
+
+  const live = await nextStateOn(
+    socket,
+    (state) => state.sensors.devices[joined.id]?.sensors.handpose.sample?.seq === 7,
+  );
+
+  const handpose = live.sensors.devices[joined.id].sensors.handpose;
+  assert.equal(handpose.freshness, "live");
+  assert.equal(handpose.sample.handpose.hands, 0);
+  assert.deepEqual(handpose.sample.handpose.keypoints, []);
+  assert.equal(handpose.sample.handpose.inferMs, 18.2);
+  assert.equal(handpose.sample.handpose.rateHz, 9.5);
+
+  // A detected hand: partial nulls survive per-field (#144).
+  socket.emit(EVENTS.sensorSample, {
+    sensor: "handpose",
+    seq: 8,
+    handpose: {
+      hands: 1,
+      confidence: 0.91,
+      keypoints: [{ x: 0.5, y: 0.25 }, { x: null, y: 0.5 }],
+      inferMs: 25,
+      rateHz: 9,
+    },
+  });
+
+  const detected = await nextStateOn(
+    socket,
+    (state) => state.sensors.devices[joined.id]?.sensors.handpose.sample?.seq === 8,
+  );
+  const stored = detected.sensors.devices[joined.id].sensors.handpose.sample.handpose;
+  assert.equal(stored.hands, 1);
+  assert.equal(stored.keypoints[0].x, 0.5);
+  assert.equal(stored.keypoints[1].x, null); // a missing coordinate
+
+  socket.emit(EVENTS.sensorStop, { sensor: "handpose" });
+  await nextStateOn(
+    socket,
+    (state) => state.sensors.devices[joined.id]?.sensors.handpose.capture === "off",
+  );
+
+  // The late result: refused — the frozen detection survives.
+  socket.emit(EVENTS.sensorSample, {
+    sensor: "handpose",
+    seq: 9,
+    handpose: { hands: 1, confidence: 1, keypoints: [], inferMs: 1, rateHz: 1 },
+  });
+
+  await sleep(1300);
+
+  const frozen = await nextStateOn(
+    socket,
+    (state) => state.sensors.devices[joined.id]?.sensors.handpose.capture === "off",
+  );
+  const kept = frozen.sensors.devices[joined.id].sensors.handpose;
+  assert.equal(kept.sample.seq, 8);
+  assert.equal(kept.sample.handpose.hands, 1);
+  assert.equal(kept.freshness, "off");
+
+  socket.close();
+});
+
 test("SIGTERM stops cleanly: the process exits zero within the window", async () => {
   const exiting = new Promise((resolve) => {
     child.once("exit", (code, signal) => resolve({ code, signal }));

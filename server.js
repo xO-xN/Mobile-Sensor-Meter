@@ -33,6 +33,7 @@ const {
   DEFAULT_STALE_AFTER_MS,
 } = require("./lib/sensors");
 const { qrHandler } = require("./lib/qr");
+const { readHandposeAssets } = require("./lib/handpose-assets");
 const { attachShutdown, closeHttpServer } = require("./lib/lifecycle");
 const shared = require("./public/shared");
 
@@ -128,6 +129,15 @@ monitorApp.get("/__pnds/health", health.handler());
 // the same resolved performer URL the config and the copyable address
 // carry — one source, no drift.
 monitorApp.get("/qr", qrHandler(performerUrl));
+
+// The handpose leg's local-asset inventory (#144): everything the phone
+// would request from /vendor/ — ml5 itself, both model.json files and
+// every shard their manifests declare — checked for presence on THIS
+// origin. The page uses it to say precisely what is missing (the fix is
+// `npm run fetch:handpose` on the host), never to fall back to a CDN.
+app.get("/handpose/assets.json", (_request, response) => {
+  response.json(readHandposeAssets(path.join(PROJECT_ROOT, "public", "vendor")));
+});
 
 // ------------------------------------------------------------
 // Client registry + sensor hub

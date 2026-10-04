@@ -65,6 +65,13 @@ class Element {
   getAttribute(name) {
     return this.attributes.has(name) ? this.attributes.get(name) : null;
   }
+
+  // Media-element stand-ins (the handpose preview video): the page
+  // binds srcObject and plays; frames "arrive" when a test sets
+  // videoWidth/videoHeight.
+  play() {
+    return Promise.resolve();
+  }
 }
 
 function loadPerformerPage(options = {}) {
@@ -164,6 +171,19 @@ function loadPerformerPage(options = {}) {
     return Promise.resolve(fakeStream());
   }
 
+  // The handpose stand-ins: lazy script loads the page can be driven
+  // through (tests fire a script's onload/onerror), a fake ml5 whose
+  // detect resolves what the test scripted, and counters for every
+  // teardown the spec (#144) pins.
+  const scripts = [];
+  const hpHarness = {
+    scriptConfigs: [],
+    disposedModels: 0,
+    detects: 0,
+    handsResult: [],
+    detectError: null,
+  };
+
   const sandbox = {
     console,
     // A clock that advances per read: the page tests assert presence
@@ -185,6 +205,39 @@ function loadPerformerPage(options = {}) {
       intervals.delete(id);
     },
     AudioContext: FakeAudioContext,
+    fetch:
+      options.assetsOk === undefined
+        ? undefined
+        : () =>
+            Promise.resolve({
+              json: () => Promise.resolve({ ok: options.assetsOk }),
+            }),
+    // The fake ml5: handPose(config) records the config; detect()
+    // resolves the scripted hands (or rejects with detectError); the
+    // underlying detector's dispose() is counted.
+    ml5: {
+      handPose(config) {
+        hpHarness.scriptConfigs.push(config);
+        return {
+          ready: Promise.resolve(),
+          model: {
+            dispose() {
+              hpHarness.disposedModels += 1;
+            },
+          },
+          detect(media) {
+            hpHarness.detects += 1;
+            void media;
+
+            if (hpHarness.detectError) {
+              return Promise.reject(hpHarness.detectError);
+            }
+
+            return Promise.resolve(hpHarness.handsResult);
+          },
+        };
+      },
+    },
     localStorage: {
       getItem: (key) => (storage.has(key) ? storage.get(key) : null),
       setItem: (key, value) => storage.set(key, String(value)),
@@ -212,9 +265,28 @@ function loadPerformerPage(options = {}) {
       visibilityState: "visible",
       getElementById(id) {
         if (!elements.has(id)) {
-          elements.set(id, new Element("div"));
+          const tag = id === "hp-video" ? "video" : "div";
+          const element = new Element(tag);
+          if (tag === "video") {
+            element.videoWidth = 0;
+            element.videoHeight = 0;
+            element.srcObject = null;
+          }
+          elements.set(id, element);
         }
         return elements.get(id);
+      },
+      createElement(tag) {
+        const element = new Element(tag);
+        element.onload = null;
+        element.onerror = null;
+        element.src = "";
+        return element;
+      },
+      head: {
+        appendChild(node) {
+          scripts.push(node);
+        },
       },
       addEventListener(type, fn) {
         if (!documentListeners.has(type)) {
@@ -254,6 +326,7 @@ function loadPerformerPage(options = {}) {
   run("locale.js");
   run("sensor-logic.js");
   run("mic-logic.js");
+  run("handpose-logic.js");
   run("render.js");
   run("performer.js");
 
@@ -284,16 +357,22 @@ function loadPerformerPage(options = {}) {
     conn: elements.get("conn-status"),
     device: elements.get("device-label"),
     mic: micHarness,
-    // Fires every live interval once (the mic's 16 ms tick and the
-    // heartbeat alike — tests filter by event name). The fake clock
-    // advances 250 ms per read, so every fired tick passes both gates.
+    hp: hpHarness,
+    // The pending lazy-loaded vendor scripts (the page appends one per
+    // handpose model load); a test fires onload/onerror to drive the
+    // load stage.
+    scripts,
+    // Fires every live interval once (the mic's 16 ms tick, the
+    // handpose inference tick and the heartbeat alike — tests filter
+    // by event name). The fake clock advances 250 ms per read, so
+    // every fired tick passes both gates.
     pumpIntervals: () => {
       for (const fn of [...intervals.values()]) {
         fn();
       }
     },
     // Live intervals beyond the page-load heartbeat (id 1): the mic's
-    // tick is the only other interval user.
+    // and handpose's ticks are the only other interval users.
     micIntervalCount: () =>
       [...intervals.keys()].filter((id) => id > 1).length,
   };
@@ -456,8 +535,11 @@ const HALF_SCALE_SQUARE = (block) => {
 };
 
 const flushMicrotasks = async () => {
-  await Promise.resolve();
-  await Promise.resolve();
+  // Enough turns for the longest page chain: getUserMedia → attach →
+  // loadScript → model.ready → beginLoop, and fetch → json → state.
+  for (let i = 0; i < 6; i += 1) {
+    await Promise.resolve();
+  }
 };
 
 test("enabling the mic grants, notifies the server, and sends the ANALYZED values", async () => {
@@ -624,4 +706,253 @@ test("backgrounding releases the mic; returning re-acquires it silently", async 
   const sample = page.emitted.find(([e]) => e === "pnds:sensor:sample");
   assert.ok(sample, "samples flow again after the silent re-acquisition");
   assert.equal(sample[1].seq, 2); // the seq keeps climbing — provably new
+});
+
+// ------------------------------------------------------------
+// The handpose leg (#144)
+// ------------------------------------------------------------
+
+function fakePixelHands() {
+  const keypoints = [];
+
+  for (let i = 0; i < 21; i += 1) {
+    keypoints.push({ name: "k" + i, x: i * 30, y: 120 }); // pixels
+  }
+
+  return [{ confidence: 0.9, keypoints }];
+}
+
+function framesFlow(page) {
+  const video = page.elements.get("hp-video");
+  video.videoWidth = 640;
+  video.videoHeight = 480;
+}
+
+async function driveHandposeToRunning(page) {
+  page.button("handpose").dispatch("click");
+  await flushMicrotasks();
+
+  // Camera granted → the lazy ml5 load starts (same-origin vendor).
+  assert.equal(page.scripts.length, 1);
+  assert.equal(page.scripts[0].src, "/vendor/ml5.min.js");
+  page.scripts[0].onload();
+  await flushMicrotasks();
+}
+
+test("enabling handpose runs the local pipeline: camera → vendor script → local model URLs → samples", async () => {
+  const page = loadPerformerPage();
+  connectAndJoin(page);
+  page.emitted.length = 0;
+
+  await driveHandposeToRunning(page);
+
+  // The model config: lightweight single hand, the verifiable WebGL
+  // (tfjs) runtime, BOTH models from this origin's /vendor/. (The
+  // config object lives in the vm realm — compare fields.)
+  assert.equal(page.hp.scriptConfigs.length, 1);
+  const config = page.hp.scriptConfigs[0];
+  assert.equal(config.maxHands, 1);
+  assert.equal(config.runtime, "tfjs");
+  assert.equal(config.modelType, "lite");
+  assert.equal(config.detectorModelUrl, "/vendor/handpose/detector/model.json");
+  assert.equal(config.landmarkModelUrl, "/vendor/handpose/landmark/model.json");
+
+  const start = page.emitted.find(([e]) => e === "pnds:sensor:start");
+  assert.ok(start, "the server must be told inference began");
+  assert.equal(start[1].sensor, "handpose");
+  assert.equal(start[1].permission, "granted");
+
+  // The camera constraints: front camera, no audio.
+  const gum = page.mic.gumCalls.find((call) => call.audio === false);
+  assert.ok(gum, "the handpose camera request must be video-only");
+  assert.equal(gum.video.facingMode, "user");
+
+  framesFlow(page);
+  page.hp.handsResult = fakePixelHands();
+  page.pumpIntervals();
+  await flushMicrotasks();
+
+  const sample = page.emitted.find(([e]) => e === "pnds:sensor:sample");
+  assert.ok(sample, "a sample must be sent");
+  assert.equal(sample[1].sensor, "handpose");
+  assert.equal(sample[1].seq, 1);
+  assert.equal(sample[1].handpose.hands, 1);
+  assert.equal(sample[1].handpose.keypoints.length, 21);
+  // Pixel coordinates are normalized before the wire: [0,1], and the
+  // values are REAL numbers (a hand WAS detected).
+  assert.ok(Math.abs(sample[1].handpose.keypoints[1].x - 30 / 640) < 1e-9);
+  assert.equal(sample[1].handpose.keypoints[0].y, 0.25);
+  assert.ok(sample[1].handpose.rateHz > 0);
+  assert.ok(sample[1].handpose.inferMs >= 0);
+
+  // The phone readout: summary rows + the coordinate convention.
+  const html = page.values("handpose").innerHTML;
+  assert.match(html, /Hands/);
+  assert.match(html, /0\.90/);
+  assert.match(html, /Hz/);
+  assert.match(html, /origin top-left/);
+});
+
+test("no hand is a RESULT: zero hands, empty keypoints — never unavailable", async () => {
+  const page = loadPerformerPage();
+  connectAndJoin(page);
+
+  await driveHandposeToRunning(page);
+  framesFlow(page);
+  page.hp.handsResult = []; // the model ran and found nothing
+
+  page.pumpIntervals();
+  await flushMicrotasks();
+
+  const sample = page.emitted.find(([e]) => e === "pnds:sensor:sample");
+  assert.equal(sample[1].handpose.hands, 0);
+  assert.equal(sample[1].handpose.keypoints.length, 0); // empty, not missing
+  assert.equal(sample[1].handpose.confidence, null);
+  assert.ok(sample[1].handpose.rateHz > 0); // inference DID run
+});
+
+test("a failed vendor script load (assets missing) is model-error and the preview keeps running", async () => {
+  const page = loadPerformerPage();
+  connectAndJoin(page);
+
+  page.button("handpose").dispatch("click");
+  await flushMicrotasks();
+
+  assert.equal(page.scripts.length, 1);
+  page.scripts[0].onerror();
+  await flushMicrotasks();
+
+  assert.match(page.note("handpose").textContent, /fetch:handpose/);
+  // The camera is still attached — the preview is the evidence that
+  // the camera path works while the model path does not.
+  assert.notEqual(page.elements.get("hp-video").srcObject, null);
+});
+
+test("stopping handpose releases loop, model and camera", async () => {
+  const page = loadPerformerPage();
+  connectAndJoin(page);
+
+  await driveHandposeToRunning(page);
+  framesFlow(page);
+  page.hp.handsResult = fakePixelHands();
+  page.pumpIntervals();
+  await flushMicrotasks();
+
+  page.button("handpose").dispatch("click"); // the button is now "Stop"
+  await flushMicrotasks();
+
+  const stop = page.emitted.find(([e]) => e === "pnds:sensor:stop");
+  assert.ok(stop);
+  assert.equal(stop[1].sensor, "handpose");
+
+  assert.equal(page.hp.disposedModels, 1); // the model's GPU memory
+  assert.equal(page.elements.get("hp-video").srcObject, null); // preview unbound
+  assert.ok(page.mic.tracksStopped >= 1); // the camera's tracks
+  assert.equal(page.micIntervalCount(), 0); // the inference loop
+});
+
+test("backgrounding releases the camera but keeps the model; return is silent and seq continues", async () => {
+  const page = loadPerformerPage();
+  connectAndJoin(page);
+
+  await driveHandposeToRunning(page);
+  framesFlow(page);
+  page.hp.handsResult = fakePixelHands();
+  page.pumpIntervals();
+  await flushMicrotasks();
+
+  const gumBefore = page.mic.gumCalls.length;
+  const startsBefore = page.emitted.filter(([e]) => e === "pnds:sensor:start").length;
+
+  page.sandbox.document.visibilityState = "hidden";
+  page.fireDocument("visibilitychange");
+
+  assert.equal(page.elements.get("hp-video").srcObject, null); // camera off
+  assert.equal(page.hp.disposedModels, 0); // the model is memory, kept
+  assert.equal(page.micIntervalCount(), 0);
+  page.emitted.length = 0;
+  page.pumpIntervals(); // nothing ticks in the background
+  await flushMicrotasks();
+  assert.equal(
+    page.emitted.filter(([e]) => e === "pnds:sensor:sample").length,
+    0,
+  );
+
+  page.sandbox.document.visibilityState = "visible";
+  page.fireDocument("visibilitychange");
+  await flushMicrotasks();
+
+  assert.equal(page.mic.gumCalls.length, gumBefore + 1); // re-acquired
+  assert.notEqual(page.elements.get("hp-video").srcObject, null);
+  assert.equal(page.hp.disposedModels, 0); // the kept model runs
+  // Silent: no second sensorStart after the resume.
+  assert.equal(
+    page.emitted.filter(([e]) => e === "pnds:sensor:start").length,
+    0,
+  );
+
+  page.pumpIntervals();
+  await flushMicrotasks();
+  const sample = page.emitted.find(([e]) => e === "pnds:sensor:sample");
+  assert.ok(sample, "samples flow again after the silent re-acquisition");
+  assert.equal(sample[1].seq, 2); // the seq keeps climbing — provably new
+  void startsBefore;
+});
+
+test("without a secure context the handpose camera reads unsupported, with the HTTPS reason", async () => {
+  const page = loadPerformerPage({ mediaDevices: null });
+  connectAndJoin(page);
+  page.emitted.length = 0;
+
+  page.button("handpose").dispatch("click");
+  await flushMicrotasks();
+
+  const permission = page.emitted.find(([e]) => e === "pnds:sensor:permission");
+  assert.ok(permission, "the unsupported fact must reach the server");
+  assert.equal(permission[1].sensor, "handpose");
+  assert.equal(permission[1].permission, "unsupported");
+  assert.equal(page.scripts.length, 0); // nothing loads without a camera
+  assert.match(page.note("handpose").textContent, /HTTPS/);
+});
+
+test("a denied camera is diagnosable and recoverable", async () => {
+  const page = loadPerformerPage({ gum: "deny" });
+  connectAndJoin(page);
+  page.emitted.length = 0;
+
+  page.button("handpose").dispatch("click");
+  await flushMicrotasks();
+
+  const permission = page.emitted.find(([e]) => e === "pnds:sensor:permission");
+  assert.equal(permission[1].permission, "denied");
+  assert.equal(
+    page.emitted.filter(([e]) => e === "pnds:sensor:start").length,
+    0,
+  );
+  assert.match(page.note("handpose").textContent, /Permission denied/);
+});
+
+test("an inference fault lands in its own state with the camera still live", async () => {
+  const page = loadPerformerPage();
+  connectAndJoin(page);
+
+  await driveHandposeToRunning(page);
+  framesFlow(page);
+  page.hp.detectError = new Error("backend lost");
+  page.pumpIntervals();
+  await flushMicrotasks();
+
+  assert.match(page.note("handpose").textContent, /Inference failed/);
+  assert.equal(page.hp.disposedModels, 1); // the suspect model is gone
+  assert.notEqual(page.elements.get("hp-video").srcObject, null); // camera kept
+  assert.equal(page.micIntervalCount(), 0);
+});
+
+test("a missing local asset inventory warns before anything runs", async () => {
+  const page = loadPerformerPage({ assetsOk: false });
+  connectAndJoin(page);
+  await flushMicrotasks();
+
+  assert.match(page.note("handpose").textContent, /fetch:handpose/);
+  assert.equal(page.hp.scriptConfigs.length, 0);
 });

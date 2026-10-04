@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "mobile-sensor-meter",
   "name": "Mobile Sensor Meter",
-  "version": "0.2.0",
-  "description": "PNDS score project that meters the phone's sensors: phones actively capture tilt, motion and microphone level on-device and stream the processed values to the monitor over Socket.IO.",
+  "version": "0.3.0",
+  "description": "PNDS score project that meters the phone's sensors: phones actively capture tilt, motion, microphone level and hand pose (local ml5.js HandPose) on-device and stream the processed values to the monitor over Socket.IO.",
   "scoreServer": {
     "entry": "server.js",
     "workingDirectory": ".",

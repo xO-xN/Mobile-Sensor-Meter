@@ -25,6 +25,7 @@
 const P = window.PNDS;
 const S = window.SensorLogic;
 const ML = window.MicLogic;
+const HPL = window.HandPoseLogic;
 const R = window.PNDS_RENDER;
 
 // No App bridge on a phone: the page picks its locale from the device
@@ -46,6 +47,7 @@ app.innerHTML =
   sensorCardHtml("tilt") +
   sensorCardHtml("motion") +
   sensorCardHtml("mic") +
+  handposeCardHtml() +
   "</div>";
 
 function sensorCardHtml(sensor) {
@@ -63,6 +65,26 @@ function sensorCardHtml(sensor) {
   );
 }
 
+// The handpose card carries its own preview stage: the raw camera
+// (mirrored for the selfie view — CSS only, the frame data the model
+// sees stays unmirrored) with the keypoint overlay drawn on top.
+function handposeCardHtml() {
+  return (
+    '<div class="card" id="card-handpose">' +
+    '<div class="sensor-head">' +
+    "<h2>" + T.handposeTitle + "</h2>" +
+    '<button id="btn-handpose">' + T.enable + "</button>" +
+    "</div>" +
+    '<div class="hp-preview">' +
+    '<video id="hp-video" playsinline muted autoplay></video>' +
+    '<canvas id="hp-canvas"></canvas>' +
+    "</div>" +
+    '<p class="sensor-note" id="note-handpose"></p>' +
+    '<div id="values-handpose"></div>' +
+    "</div>"
+  );
+}
+
 const connEl = document.getElementById("conn-status");
 const deviceEl = document.getElementById("device-label");
 
@@ -70,6 +92,7 @@ const els = {
   tilt: sensorEls("tilt"),
   motion: sensorEls("motion"),
   mic: sensorEls("mic"),
+  handpose: sensorEls("handpose"),
 };
 
 function sensorEls(sensor) {
@@ -126,7 +149,7 @@ const heartbeatTimer = setInterval(() => {
 
 // ------------------------------------------------------------ sensors
 
-const lastShown = { tilt: null, motion: null, mic: null };
+const lastShown = { tilt: null, motion: null, mic: null, handpose: null };
 
 const controller = new S.SensorController(
   {
@@ -279,27 +302,303 @@ function isCapturing(state) {
   return state === "on" || state === "starting";
 }
 
+// ------------------------------------------------------------ handpose (#144)
+
+// The lazy loader for the SAME-ORIGIN ml5 bundle: nothing of ml5 costs
+// a byte until the user actually enables the hand card, and what loads
+// comes from this server's /vendor/ — never a CDN. A bundle that has
+// already loaded resolves immediately: a re-enable (e.g. after a model
+// error) must not re-execute the script.
+const loadedVendorScripts = new Set();
+
+function loadVendorScript(src) {
+  if (loadedVendorScripts.has(src)) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.onload = () => {
+      loadedVendorScripts.add(src);
+      resolve();
+    };
+    script.onerror = () => reject(new Error("failed to load " + src));
+    document.head.appendChild(script);
+  });
+}
+
+// ml5's wrapper exposes no dispose of its own; the underlying
+// hand-pose-detection detector has one — release the GPU memory
+// through it when present.
+function wrapMl5HandPose(config) {
+  const instance = window.ml5.handPose(config);
+
+  return {
+    ready: instance.ready,
+    detect: (media) => instance.detect(media),
+    dispose() {
+      if (instance.model && typeof instance.model.dispose === "function") {
+        instance.model.dispose();
+      }
+    },
+  };
+}
+
+function hpVideo() {
+  return document.getElementById("hp-video");
+}
+
+const handpose = new HPL.HandPoseController(
+  {
+    now: () => performance.now(),
+    getUserMedia:
+      navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function"
+        ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
+        : null,
+    releaseStream: stopStreamTracks,
+    attachStream(stream) {
+      const video = hpVideo();
+      video.srcObject = stream;
+      video.play().catch(() => {});
+    },
+    detachStream() {
+      hpVideo().srcObject = null;
+    },
+    media: () => hpVideo(),
+    mediaSize() {
+      const video = hpVideo();
+      return video && video.videoWidth > 0
+        ? { width: video.videoWidth, height: video.videoHeight }
+        : null;
+    },
+    loadScript: loadVendorScript,
+    createModel: wrapMl5HandPose,
+    scriptSrc: "/vendor/ml5.min.js",
+    modelUrls: {
+      detectorModelUrl: "/vendor/handpose/detector/model.json",
+      landmarkModelUrl: "/vendor/handpose/landmark/model.json",
+    },
+    schedule: (fn, intervalMs) => {
+      const id = setInterval(fn, intervalMs);
+      return () => clearInterval(id);
+    },
+  },
+  {
+    onState: renderHandposeState,
+    onStart: (permission) => {
+      socket.emit(P.events.sensorStart, { sensor: "handpose", permission });
+      renderHandposeState();
+    },
+    onStop: () => {
+      socket.emit(P.events.sensorStop, { sensor: "handpose" });
+      renderHandposeState();
+    },
+    onPermission: (permission) => {
+      socket.emit(P.events.sensorPermission, { sensor: "handpose", permission });
+      renderHandposeState();
+    },
+    onSend: (sample, seq) => {
+      if (deviceId !== null) {
+        socket.emit(P.events.sensorSample, {
+          sensor: "handpose",
+          seq,
+          handpose: sample,
+        });
+      }
+
+      lastShown.handpose = { sample, seq };
+      drawHandposeOverlay(sample);
+      document.getElementById("values-handpose").innerHTML = R.handposeRows(sample, T);
+    },
+  },
+);
+
+els.handpose.button.addEventListener("click", () => {
+  if (isHandposeActive(handpose.stateOf())) {
+    handpose.stop();
+  } else {
+    handpose.start();
+  }
+});
+
+function isHandposeActive(state) {
+  return (
+    state === "camera-starting" || state === "loading-model" || state === "running"
+  );
+}
+
+// The overlay mirrors x to match the CSS-mirrored selfie preview — the
+// wire coordinates themselves stay UNmirrored (the model's frame).
+function drawHandposeOverlay(sample) {
+  const canvas = document.getElementById("hp-canvas");
+
+  if (!canvas || typeof canvas.getContext !== "function") {
+    return;
+  }
+
+  const width = canvas.clientWidth || 0;
+  const height = canvas.clientHeight || 0;
+
+  if (width === 0 || height === 0) {
+    return;
+  }
+
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    return;
+  }
+
+  context.clearRect(0, 0, width, height);
+
+  if (sample.hands === 0 || !Array.isArray(sample.keypoints) || sample.keypoints.length === 0) {
+    return; // no hand: the cleared overlay IS the no-hand display
+  }
+
+  const px = (point) => [(1 - point.x) * width, point.y * height];
+  const drawable = (point) =>
+    point && point.x !== null && point.y !== null && point.x !== undefined && point.y !== undefined;
+
+  context.strokeStyle = "rgba(90, 79, 243, 0.9)";
+  context.lineWidth = 2;
+
+  for (const [from, to] of P.handConnections) {
+    const a = sample.keypoints[from];
+    const b = sample.keypoints[to];
+
+    if (!drawable(a) || !drawable(b)) {
+      continue;
+    }
+
+    const [x1, y1] = px(a);
+    const [x2, y2] = px(b);
+    context.beginPath();
+    context.moveTo(x1, y1);
+    context.lineTo(x2, y2);
+    context.stroke();
+  }
+
+  context.fillStyle = "#16a34a";
+
+  for (const point of sample.keypoints) {
+    if (!drawable(point)) {
+      continue;
+    }
+
+    const [x, y] = px(point);
+    context.beginPath();
+    context.arc(x, y, 4, 0, Math.PI * 2);
+    context.fill();
+  }
+}
+
+// The local-asset inventory, fetched once: when the vendor files are
+// missing the card says the FIX (npm run fetch:handpose on the host)
+// before the user ever hits a model error.
+let handposeAssetsOk = null;
+
+if (typeof fetch === "function") {
+  fetch("/handpose/assets.json")
+    .then((response) => response.json())
+    .then((assets) => {
+      handposeAssetsOk = Boolean(assets && assets.ok);
+      renderHandposeState();
+    })
+    .catch(() => {});
+}
+
+function renderHandposeState() {
+  const state = handpose.stateOf();
+  const note = els.handpose.note;
+  const button = els.handpose.button;
+
+  button.classList.toggle("stop", isHandposeActive(state));
+  button.textContent = isHandposeActive(state) ? T.stop : T.enable;
+
+  if (handpose.paused && isHandposeActive(state)) {
+    note.textContent = T.paused;
+    note.classList.add("bad");
+    return;
+  }
+
+  note.classList.remove("bad");
+
+  switch (state) {
+    case "camera-starting":
+      note.textContent = T.cameraAsk;
+      break;
+    case "camera-denied":
+      note.textContent = T.permissionDenied;
+      note.classList.add("bad");
+      break;
+    case "unsupported":
+      note.textContent = T.handposeUnsupported;
+      note.classList.add("bad");
+      break;
+    case "loading-model":
+      note.textContent = T.modelLoading;
+      break;
+    case "model-error":
+      note.textContent = T.modelError;
+      note.classList.add("bad");
+      break;
+    case "error":
+      note.textContent = T.inferenceError;
+      note.classList.add("bad");
+      break;
+    case "running":
+      note.textContent = "";
+      break;
+    default:
+      // Stopped: the frozen last values stay readable; the note says
+      // the capture ended (or the asset hint, before anything ran).
+      if (lastShown.handpose) {
+        note.textContent = T.stopped;
+      } else if (handposeAssetsOk === false) {
+        note.textContent = T.modelError;
+        note.classList.add("bad");
+      } else {
+        note.textContent = "";
+      }
+  }
+
+  if (state === "running" && lastShown.handpose === null) {
+    els.handpose.values.innerHTML = R.naSpan(T.noData);
+  }
+}
+
 // ------------------------------------------------------------ page visibility
 
 // Backgrounded pages pause capture and say so; coming back resumes the
 // sensors the user left ON — stopped ones stay stopped (nothing ever
-// restarts capture on its own). The mic RELEASES its stream here (an
-// exclusive resource must not outlive the foreground) and re-acquires
-// silently on return.
+// restarts capture on its own). The mic and the handpose camera RELEASE
+// their streams here (exclusive resources must not outlive the
+// foreground) and re-acquire silently on return; the handpose MODEL is
+// memory, not a device — it stays loaded for a fast resume.
 function pauseCapture() {
   controller.pause();
   mic.pause();
+  handpose.pause();
   socket.emit(P.events.sensorPause);
   renderStates();
   renderMicState();
+  renderHandposeState();
 }
 
 function resumeCapture() {
   controller.resume();
   mic.resume();
+  handpose.resume();
   socket.emit(P.events.sensorResume);
   renderStates();
   renderMicState();
+  renderHandposeState();
 }
 
 document.addEventListener("visibilitychange", () => {
@@ -426,3 +725,4 @@ function renderMicState() {
 
 renderStates();
 renderMicState();
+renderHandposeState();

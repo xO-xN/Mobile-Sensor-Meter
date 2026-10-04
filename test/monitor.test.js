@@ -120,6 +120,13 @@ function deviceEntry(overrides = {}) {
         freshness: "off",
         sample: null,
       },
+      handpose: {
+        sensor: "handpose",
+        capture: "off",
+        permission: "unknown",
+        freshness: "off",
+        sample: null,
+      },
     },
     ...overrides,
   };
@@ -422,4 +429,69 @@ test("an empty roster points at the QR", () => {
 
   assert.match(page.elements.get("empty").textContent, /scan the QR/i);
   assert.equal(page.elements.get("devices").innerHTML, "");
+});
+
+test("the handpose block shows summary meters and an expandable keypoint detail that refreshes on new samples", () => {
+  const page = loadMonitorPage();
+
+  const handposeEntry = (hands, keypoints, seq) =>
+    deviceEntry({
+      sensors: {
+        ...deviceEntry().sensors,
+        handpose: {
+          ...deviceEntry().sensors.handpose,
+          capture: "on",
+          freshness: "live",
+          sample: {
+            seq,
+            at: 5000,
+            handpose: { hands, confidence: 0.87, keypoints, inferMs: 42.5, rateHz: 9.5 },
+          },
+        },
+      },
+    });
+
+  page.handlers.state({
+    sensors: {
+      at: 5000,
+      staleAfterMs: 2000,
+      devices: {
+        1: handposeEntry(1, [{ x: 0.5, y: 0.25 }, { x: null, y: 0.5 }], 3),
+      },
+    },
+  });
+
+  const html = page.elements.get("devices").innerHTML;
+  // Summary meters with units; the count is a fact.
+  assert.match(html, /Hand/);
+  assert.match(html, /0\.87/);
+  assert.match(html, /42\.5 ms/);
+  assert.match(html, /9\.5 Hz/);
+  assert.match(html, /origin top-left/); // the coordinate convention
+  // The expandable detail exists with the canonical names.
+  assert.match(html, /<details class="kp-details">/);
+  const kp = page.sandbox.document.getElementById("kpd-1").innerHTML;
+  assert.match(kp, /wrist/);
+  assert.match(kp, /0\.500/);
+  assert.match(kp, /0\.250/);
+  assert.match(kp, /unavailable/); // a missing coordinate is a word
+
+  // A NEWER sample refreshes the detail rows in place (the element is
+  // never recreated — the operator's <details> stays as they left it).
+  page.handlers.state({
+    sensors: {
+      at: 5200,
+      staleAfterMs: 2000,
+      devices: { 1: handposeEntry(0, [], 4) },
+    },
+  });
+  page.pump(5216);
+
+  const after = page.sandbox.document.getElementById("kpd-1").innerHTML;
+  assert.match(after, /No hand detected/);
+  // And the summary row shows the real zero.
+  assert.match(
+    page.sandbox.document.getElementById("values-1-handpose").innerHTML,
+    /label">Hands<\/span><span class="value">0<\/span>/,
+  );
 });

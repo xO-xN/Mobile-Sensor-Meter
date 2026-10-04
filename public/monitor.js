@@ -152,6 +152,13 @@ function rebuildCards(T) {
     delete valueEls[key];
   }
 
+  // The keypoint detail's seq bookkeeping starts over too: a rebuilt
+  // card's detail div is new and must be repainted even at the same
+  // seq (paintValues(0) below does it synchronously).
+  for (const key of Object.keys(lastKpSeq)) {
+    delete lastKpSeq[key];
+  }
+
   for (const id of visibleIds) {
     const device = state.sensors.devices[id];
 
@@ -216,6 +223,36 @@ function paintSensor(id, sensor, device, T, dtMs) {
   smoothed[id][sensor] = current;
 
   el.innerHTML = R.rowsFor(sensor, current, T) + R.row(T.freshness, ageText(device.sensors[sensor], T));
+
+  if (sensor === "handpose") {
+    paintKeypointDetails(id, device.sensors.handpose, T);
+  }
+}
+
+// The handpose detail table refreshes ONLY when a newer sample arrives
+// (seq changed): the coordinates are facts, and touching the DOM less
+// keeps the operator's <details> exactly as open as they left it —
+// the frame loop never recreates that element.
+const lastKpSeq = {}; // device id -> the seq the detail rows were built from
+
+function paintKeypointDetails(id, record, T) {
+  const sample = record.sample;
+
+  if (sample === null) {
+    return;
+  }
+
+  if (lastKpSeq[id] === sample.seq) {
+    return;
+  }
+
+  lastKpSeq[id] = sample.seq;
+
+  const el = document.getElementById("kpd-" + id);
+
+  if (el) {
+    el.innerHTML = R.handposeKeypointRows(sample.handpose, T, P.keypointNames);
+  }
 }
 
 function sampleValueBlock(sensor, sample) {
@@ -233,6 +270,16 @@ function cloneValueBlock(sensor, block) {
       peak: block.peak,
       level: block.level,
       sampleRate: block.sampleRate,
+    };
+  }
+
+  if (sensor === "handpose") {
+    return {
+      hands: block.hands,
+      confidence: block.confidence,
+      keypoints: block.keypoints,
+      inferMs: block.inferMs,
+      rateHz: block.rateHz,
     };
   }
 
@@ -262,6 +309,19 @@ function advanceValueBlock(sensor, current, target, dtMs) {
       level: R.approachField(current.level, target.level, dtMs, SMOOTH_TAU_MS, false),
       // A fact, not a magnitude — the capture's rate, unsmoothed.
       sampleRate: target.sampleRate,
+    };
+  }
+
+  if (sensor === "handpose") {
+    return {
+      // A count is a fact: detections, not a smoothed magnitude.
+      hands: target.hands,
+      confidence: R.approachField(current.confidence, target.confidence, dtMs, SMOOTH_TAU_MS, false),
+      // Keypoints are facts too — the expandable detail renders them
+      // from the newest sample, never smoothed.
+      keypoints: target.keypoints,
+      inferMs: R.approachField(current.inferMs, target.inferMs, dtMs, SMOOTH_TAU_MS, false),
+      rateHz: R.approachField(current.rateHz, target.rateHz, dtMs, SMOOTH_TAU_MS, false),
     };
   }
 
@@ -349,6 +409,19 @@ function sensorBlockHtml(device, sensor, T) {
     values = R.rowsFor(sensorId, sampleValueBlock(sensorId, sample), T);
   }
 
+  // The handpose keypoint detail: an expandable <details> the frame
+  // loop NEVER recreates (only its inner rows refresh on a newer seq),
+  // so an operator reading coordinates keeps it open across frames.
+  // The initial rows are painted by the rebuild's own paintValues(0)
+  // pass — the same path that refreshes them.
+  let detail = "";
+
+  if (sensorId === "handpose") {
+    detail =
+      '<details class="kp-details"><summary>' + T.keypointsLabel + "</summary>" +
+      '<div class="kp-rows" id="kpd-' + device.id + '"></div></details>';
+  }
+
   return (
     '<div class="sensor-block">' +
     "<h3>" +
@@ -360,6 +433,7 @@ function sensorBlockHtml(device, sensor, T) {
     values +
     R.row(T.freshness, ageText(sensor, T)) +
     "</div>" +
+    detail +
     "</div>"
   );
 }

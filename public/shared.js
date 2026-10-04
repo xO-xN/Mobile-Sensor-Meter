@@ -38,10 +38,35 @@
     // Client roster cap (id space, PlayerRegistry).
     maxClients: 16,
 
-    // The three sensors this tool meters. The mic (#143) is an exclusive
-    // resource: its capture releases on stop / pagehide / background, and
-    // its samples carry processed level values only — never audio.
-    sensorIds: { tilt: "tilt", motion: "motion", mic: "mic" },
+    // The sensors this tool meters. The mic (#143) and handpose (#144)
+    // are exclusive-resource sensors: their captures release on stop /
+    // pagehide / background, and their samples carry processed values
+    // only (levels, keypoints) — never audio or video.
+    sensorIds: { tilt: "tilt", motion: "motion", mic: "mic", handpose: "handpose" },
+
+    // The 21 MediaPipe hand landmarks, in the canonical wire order. The
+    // handpose samples carry {x, y} pairs in exactly this order; the
+    // names live here once and both pages label from this table.
+    keypointNames: [
+      "wrist",
+      "thumb_cmc", "thumb_mcp", "thumb_ip", "thumb_tip",
+      "index_finger_mcp", "index_finger_pip", "index_finger_dip", "index_finger_tip",
+      "middle_finger_mcp", "middle_finger_pip", "middle_finger_dip", "middle_finger_tip",
+      "ring_finger_mcp", "ring_finger_pip", "ring_finger_dip", "ring_finger_tip",
+      "pinky_finger_mcp", "pinky_finger_pip", "pinky_finger_dip", "pinky_finger_tip",
+    ],
+
+    // Skeletal connections over keypoint indices (MediaPipe's hand
+    // topology) — the phone's overlay draws these, mirrored to match
+    // the selfie-view preview.
+    handConnections: [
+      [0, 1], [1, 2], [2, 3], [3, 4],
+      [0, 5], [5, 6], [6, 7], [7, 8],
+      [5, 9], [9, 10], [10, 11], [11, 12],
+      [9, 13], [13, 14], [14, 15], [15, 16],
+      [13, 17], [17, 18], [18, 19], [19, 20],
+      [0, 17],
+    ],
 
     // Freshness vocabulary — mirror of lib/sensors.js FRESHNESS. The
     // monitor renders every one of these distinctly: an
@@ -117,6 +142,19 @@
           sampleRate: "Sample rate",
           micUnsupported: "Microphone needs a secure (HTTPS) context — or is unsupported here",
           micMeterNote: "Uncalibrated: FS = fraction of digital full scale; level is dBFS, floor −90",
+          handposeTitle: "Hand (ml5 HandPose)",
+          hands: "Hands",
+          confidence: "Confidence",
+          inferMs: "Inference",
+          rateHz: "Update rate",
+          keypointsLabel: "Keypoints",
+          noHand: "No hand detected",
+          modelLoading: "Camera live — loading local model…",
+          cameraAsk: "Tap Enable to grant camera access",
+          handposeUnsupported: "Camera needs a secure (HTTPS) context — or is unsupported here",
+          modelError: "Model failed to load — run npm run fetch:handpose on the host",
+          inferenceError: "Inference failed — try enabling again",
+          handposeConvention: "Keypoints normalized [0, 1], origin top-left, unmirrored (model frame)",
           unavailable: "unavailable",
           permissionDenied: "Permission denied — enable in browser settings",
           permissionAsk: "Tap Enable to grant sensor access",
@@ -164,6 +202,14 @@
           level: "Level",
           sampleRate: "Sample rate",
           micMeterNote: "Uncalibrated: FS = fraction of digital full scale; level is dBFS, floor −90",
+          handpose: "Hand",
+          hands: "Hands",
+          confidence: "Confidence",
+          inferMs: "Inference",
+          rateHz: "Update rate",
+          keypointsLabel: "Keypoints",
+          noHand: "No hand detected",
+          handposeConvention: "Keypoints normalized [0, 1], origin top-left, unmirrored (model frame)",
           unavailable: "unavailable",
           ago: { just: "just now", seconds: "s ago", minutes: "m ago" },
         },
@@ -192,6 +238,19 @@
           sampleRate: "采样率",
           micUnsupported: "麦克风需要 HTTPS 安全上下文——或此浏览器不支持",
           micMeterNote: "未经校准：FS 为数字满幅比例；电平为 dBFS，地板 −90",
+          handposeTitle: "手部（ml5 HandPose）",
+          hands: "手数",
+          confidence: "置信度",
+          inferMs: "推理耗时",
+          rateHz: "更新率",
+          keypointsLabel: "关键点",
+          noHand: "未检测到手",
+          modelLoading: "摄像头已就绪——正在加载本地模型…",
+          cameraAsk: "点「启用」授予摄像头权限",
+          handposeUnsupported: "摄像头需要 HTTPS 安全上下文——或此浏览器不支持",
+          modelError: "模型加载失败——请在 Host 上运行 npm run fetch:handpose",
+          inferenceError: "推理失败——请重新启用",
+          handposeConvention: "关键点归一化 [0, 1]，原点左上，未镜像（模型坐标系）",
           unavailable: "不可用",
           permissionDenied: "权限被拒绝 — 请在浏览器设置中允许",
           permissionAsk: "点「启用」授予传感器权限",
@@ -239,6 +298,14 @@
           level: "电平",
           sampleRate: "采样率",
           micMeterNote: "未经校准：FS 为数字满幅比例；电平为 dBFS，地板 −90",
+          handpose: "手部",
+          hands: "手数",
+          confidence: "置信度",
+          inferMs: "推理耗时",
+          rateHz: "更新率",
+          keypointsLabel: "关键点",
+          noHand: "未检测到手",
+          handposeConvention: "关键点归一化 [0, 1]，原点左上，未镜像（模型坐标系）",
           unavailable: "不可用",
           ago: { just: "刚刚", seconds: " 秒前", minutes: " 分钟前" },
         },

@@ -94,7 +94,59 @@
       return micRows(block, T);
     }
 
+    if (sensor === "handpose") {
+      return handposeRows(block, T);
+    }
+
     return motionRows(block, T);
+  }
+
+  // The handpose summary rows: the count is a fact (0 hands = "no hand
+  // detected", a RESULT like a silent room's real zeros), confidence /
+  // inference / update rate are meter numbers (confidence may be null —
+  // "available confidence" means exactly what the model gave). The
+  // convention note rides along so the coordinates always carry their
+  // frame of reference (#144).
+  function handposeRows(block, T) {
+    return (
+      row(
+        T.hands,
+        block.hands === null
+          ? naSpan(T.unavailable)
+          : '<span class="value">' + block.hands + "</span>",
+      ) +
+      row(T.confidence, numOrNa(block.confidence, "", T, 2)) +
+      row(T.inferMs, numOrNa(block.inferMs, "ms", T, 1)) +
+      row(T.rateHz, numOrNa(block.rateHz, "Hz", T, 1)) +
+      '<div class="meter-note">' + T.handposeConvention + "</div>"
+    );
+  }
+
+  // The keypoint detail rows (monitor, inside its expandable
+  // <details>): the full first-hand table labeled from the shared
+  // canonical names. Rendered from the LATEST sample only —
+  // coordinates are facts, never smoothed. The <details> element
+  // itself belongs to the monitor (created at card rebuild, never
+  // recreated per frame, so it stays open); only these inner rows
+  // refresh when a newer sample arrives (#144).
+  function handposeKeypointRows(block, T, keypointNames) {
+    if (block.keypoints === null) {
+      return row(T.keypointsLabel, naSpan(T.unavailable));
+    }
+
+    if (block.hands === 0 || block.keypoints.length === 0) {
+      return row(T.keypointsLabel, '<span class="value na">' + T.noHand + "</span>");
+    }
+
+    return block.keypoints
+      .map((point, index) => {
+        const name = keypointNames[index] || "#" + index;
+        return row(
+          name,
+          numOrNa(point.x, "", T, 3) + " " + numOrNa(point.y, "", T, 3),
+        );
+      })
+      .join("");
   }
 
   // ------------------------------------------------------------
@@ -168,6 +220,8 @@
     motionRows,
     micRows,
     rowsFor,
+    handposeRows,
+    handposeKeypointRows,
     DISCONNECTED_HIDE_AFTER_MS,
     visibleDeviceIds,
     approach,

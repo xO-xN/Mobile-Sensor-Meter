@@ -191,6 +191,49 @@ button:disabled {
   color: var(--danger);
 }
 
+/* ---------- handpose preview (#144) ---------- */
+
+/* The selfie preview: mirrored via CSS ONLY (the frame data the model
+ * sees stays unmirrored); the overlay canvas mirrors x to match. */
+.hp-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 4px 0 6px;
+}
+
+.hp-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.hp-preview canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* The monitor's expandable keypoint table: plain rows inside the
+ * native disclosure widget — never recreated per frame, so it stays
+ * open while the operator reads coordinates. */
+.kp-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.kp-details .kp-rows .row {
+  font-size: 12px;
+}
+
 /* ---------- monitor page ---------- */
 
 .mon {

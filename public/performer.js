@@ -1,4 +1,4 @@
-// Mobile Sensor Diagnostics — performer page.
+// Mobile Sensor Meter — performer page.
 //
 // The phone is the sensor: two cards (tilt, motion), each with the
 // user's explicit Enable/Stop pair — iOS requires the permission

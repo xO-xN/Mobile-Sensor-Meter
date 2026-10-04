@@ -1,6 +1,6 @@
 # AI Agent Instructions
 
-PNDS 诊断工程：手机倾斜 / 运动双端实时诊断（issue xO-xN/PNDS-App#142）。
+PNDS 仪表工程 Mobile Sensor Meter：手机倾斜 / 运动双端实时读表（issue xO-xN/PNDS-App#142）。
 Node 24 + Express + Socket.IO，纯网络工程（audio none）。
 
 ## 规则

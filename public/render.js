@@ -1,4 +1,4 @@
-// Mobile Sensor Diagnostics — shared value rendering (both pages).
+// Mobile Sensor Meter — shared value rendering (both pages).
 //
 // The performer readout and the monitor cards render the SAME sample
 // shapes (tilt angles, motion values), so the zero-vs-null rule lives

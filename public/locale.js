@@ -1,4 +1,4 @@
-// Mobile Sensor Diagnostics — locale following.
+// Mobile Sensor Meter — locale following.
 //
 // Monitor page: PNDS App ≥ v1.3.0 pushes its current UI language into
 // the monitor iframe over cross-origin postMessage (network reference

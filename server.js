@@ -1,4 +1,4 @@
-// Mobile Sensor Diagnostics — score server entry point.
+// Mobile Sensor Meter — score server entry point.
 //
 // A network-only PNDS project: no audio engine, no SuperCollider. The
 // server:

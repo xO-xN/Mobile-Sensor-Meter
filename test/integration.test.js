@@ -161,7 +161,7 @@ test("health reports the none-mode contract on both ports", async () => {
     const payload = await (await fetch(url)).json();
 
     assert.equal(payload.status, "ready");
-    assert.equal(payload.projectId, "mobile-sensor-diagnostics");
+    assert.equal(payload.projectId, "mobile-sensor-meter");
     assert.equal(payload.audioMode, "none");
     assert.equal(payload.audio.status, "disabled");
     assert.equal(payload.audio.target, null);
@@ -177,7 +177,7 @@ test("__config.js injects role, projectId and the resolved performer URL", async
   assert.match(performerConfig, /"role":"performer"/);
   assert.match(monitorConfig, /"role":"monitor"/);
   for (const config of [performerConfig, monitorConfig]) {
-    assert.match(config, /"projectId":"mobile-sensor-diagnostics"/);
+    assert.match(config, /"projectId":"mobile-sensor-meter"/);
     assert.match(config, new RegExp(ENTRY_URL.replaceAll("/", "\\/")));
   }
 });

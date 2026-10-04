@@ -59,7 +59,7 @@ function loadMonitorPage() {
     io: () => socket,
     __PNDS_CONFIG__: {
       role: "monitor",
-      projectId: "mobile-sensor-diagnostics",
+      projectId: "mobile-sensor-meter",
       performerUrl: "https://show.example.org:8443/",
       performerPort: 6868,
       monitorPort: 6869,

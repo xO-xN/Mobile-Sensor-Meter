@@ -1,4 +1,4 @@
-// Mobile Sensor Diagnostics — browser-side sensor logic.
+// Mobile Sensor Meter — browser-side sensor logic.
 //
 // Plain script, no imports: loaded as window.SensorLogic on the performer
 // page, require()d by the Node tests (the "API stand-in" harness drives

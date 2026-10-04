@@ -1,8 +1,8 @@
 {
-  "name": "mobile-sensor-diagnostics",
+  "name": "mobile-sensor-meter",
   "version": "0.1.0",
   "private": true,
-  "description": "PNDS score project for mobile sensor diagnostics: phones actively capture tilt (alpha/beta/gamma) and motion (acceleration, shake) on-device and stream the processed values to the monitor over Socket.IO.",
+  "description": "PNDS score project that meters the phone's motion sensors: phones actively capture tilt (alpha/beta/gamma) and motion (acceleration, shake) on-device and stream the processed values to the monitor over Socket.IO.",
   "main": "server.js",
   "engines": {
     "node": ">=24 <25"

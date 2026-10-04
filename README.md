@@ -1,4 +1,4 @@
-# Mobile Sensor Diagnostics
+# Mobile Sensor Meter
 
 [English](#english) | [中文](#中文)
 
@@ -6,7 +6,7 @@
 
 ## English
 
-A PNDS score project that diagnoses the two motion sensors phones expose to the browser — **tilt** (device orientation, α/β/γ) and **motion** (acceleration, shake) — end to end: the phone captures and processes its own sensor data, displays it live, and streams the processed values to the monitor over Socket.IO. The monitor shows every device's values, permissions, connection and data freshness side by side, keyed by a stable device identity that survives reconnects.
+A PNDS score project that meters the two motion sensors phones expose to the browser — **tilt** (device orientation, α/β/γ) and **motion** (acceleration, shake) — end to end: the phone captures and processes its own sensor data, displays it live, and streams the processed values to the monitor over Socket.IO. The monitor shows every device's values, permissions, connection and data freshness side by side, keyed by a stable device identity that survives reconnects.
 
 Network-only: no audio, no SuperCollider; the server always runs with audio disabled (`none` mode). No camera, no microphone, no raw media of any kind — only processed numbers. No hub, no cloud. Stack: Node.js, Express, Socket.IO.
 
@@ -98,7 +98,7 @@ MIT — see [LICENSE](LICENSE).
 
 ## 中文
 
-PNDS 诊断工程：检验手机浏览器提供的两个运动传感器——**倾斜**（设备方向 α/β/γ）与**运动**（加速度、摇动）——的完整链路。手机在自己本地采集与处理、实时显示自身数值，并把处理后的数值经 Socket.IO 送达 monitor；monitor 按稳定设备标识逐台显示数值、权限、连接与数据新鲜度，重连不串设备。
+PNDS 仪表工程（Mobile Sensor Meter）：检验手机浏览器提供的两个运动传感器——**倾斜**（设备方向 α/β/γ）与**运动**（加速度、摇动）——的完整链路。手机在自己本地采集与处理、实时显示自身数值，并把处理后的数值经 Socket.IO 送达 monitor；monitor 按稳定设备标识逐台显示数值、权限、连接与数据新鲜度，重连不串设备。
 
 纯网络工程：无音频、无 SuperCollider，始终以 `none` 模式运行。无摄像头、无麦克风、不录不传任何原始媒体——只传处理后的数值。不依赖 hub 或云。
 

@@ -139,7 +139,7 @@ function loadPerformerPage(options = {}) {
     // /__config.js before any script runs.
     __PNDS_CONFIG__: {
       role: "performer",
-      projectId: "mobile-sensor-diagnostics",
+      projectId: "mobile-sensor-meter",
       performerUrl: "http://192.168.1.10:6868/",
       performerPort: 6868,
       monitorPort: 6869,
@@ -207,7 +207,7 @@ test("the page joins same-origin with its token and stores the new one", () => {
   assert.equal(page.emitted[0][0], "join");
   assert.equal(page.emitted[0][1].token, null);
   assert.equal(page.emitted[1][0], "pnds:sensor:resume");
-  assert.ok(page.storage.get("mobile-sensor-diagnostics-token"));
+  assert.ok(page.storage.get("mobile-sensor-meter-token"));
   assert.match(page.device.textContent, /Device 1/);
 
   // A reconnect re-joins with the PERSISTED token — never a new device.

@@ -1,4 +1,4 @@
-// Mobile Sensor Diagnostics — monitor page.
+// Mobile Sensor Meter — monitor page.
 //
 // Operator console: one card per device the server currently presents,
 // keyed by the stable device id (a reconnect keeps the id — data never

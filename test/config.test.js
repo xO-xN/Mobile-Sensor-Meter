@@ -14,10 +14,10 @@ const {
 
 const PROJECT_ROOT = path.join(__dirname, "..");
 
-test("manifest declares the diagnostics project shape", () => {
+test("manifest declares the meter project shape", () => {
   const manifest = loadManifest(PROJECT_ROOT);
 
-  assert.equal(manifest.id, "mobile-sensor-diagnostics");
+  assert.equal(manifest.id, "mobile-sensor-meter");
   // Full performer URL adaptation (§15): without the declaration the
   // App's HTTPS entry never applies to this project.
   assert.equal(manifest.scoreServer.supportsPerformerUrl, true);

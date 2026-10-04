@@ -64,7 +64,7 @@
 
     // Claim token persisted by the performer page so a reconnect recovers
     // the same device id (localStorage key — per-origin by construction).
-    tokenKey: "mobile-sensor-diagnostics-token",
+    tokenKey: "mobile-sensor-meter-token",
 
     events: {
       join: "join",
@@ -93,7 +93,7 @@
     copy: {
       en: {
         performer: {
-          title: "Mobile Sensor Diagnostics",
+          title: "Mobile Sensor Meter",
           sub: "Performer",
           connecting: "Connecting…",
           connected: "Connected",
@@ -119,7 +119,7 @@
           gravityField: "gravity",
         },
         monitor: {
-          title: "Mobile Sensor Diagnostics",
+          title: "Mobile Sensor Meter",
           sub: "Monitor — sensor test console",
           empty: "No devices yet — scan the QR code below",
           scan: "Scan to join as performer",
@@ -155,7 +155,7 @@
       },
       "zh-CN": {
         performer: {
-          title: "移动传感器诊断",
+          title: "传感器仪表",
           sub: "演奏者",
           connecting: "连接中…",
           connected: "已连接",
@@ -181,7 +181,7 @@
           gravityField: "重力",
         },
         monitor: {
-          title: "移动传感器诊断",
+          title: "传感器仪表",
           sub: "监视端 — 传感器测试控制台",
           empty: "还没有设备 — 扫描下方二维码加入",
           scan: "扫码加入为测试设备",

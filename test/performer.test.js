@@ -215,15 +215,16 @@ function loadPerformerPage(options = {}) {
     // The fake ml5: handPose(config) records the config; detect()
     // resolves the scripted hands (or rejects with detectError); the
     // underlying detector's dispose() is counted.
+    //
+    // Shape matters: real ml5 1.4.0 with NO p5 on the page replaces
+    // every factory with a promise-returning one — handPose(config)
+    // resolves to the instance (the phone failure). options.ml5Returns
+    // = "instance" exercises the plain-constructor shape instead.
     ml5: {
       handPose(config) {
         hpHarness.scriptConfigs.push(config);
-        return {
-          // options.modelReadyError scripts a tfjs/loader failure; the
-          // rejection is consumed by the controller's catch.
-          ready: options.modelReadyError
-            ? Promise.reject(new Error(options.modelReadyError))
-            : Promise.resolve(),
+        const instance = {
+          ready: Promise.resolve(),
           model: {
             dispose() {
               hpHarness.disposedModels += 1;
@@ -240,6 +241,22 @@ function loadPerformerPage(options = {}) {
             return Promise.resolve(hpHarness.handsResult);
           },
         };
+
+        if (options.modelReadyError) {
+          return Promise.reject(new Error(options.modelReadyError));
+        }
+
+        if (options.ml5Returns === "instance") {
+          return instance; // the plain-constructor shape
+        }
+
+        if (options.ml5Returns === "garbage") {
+          return 42; // neither an instance nor a promise
+        }
+
+        // The REAL 1.4.0 shape with no p5 on the page: a promise that
+        // resolves to the instance once the local weights are in.
+        return Promise.resolve(instance);
       },
     },
     localStorage: {
@@ -878,6 +895,65 @@ test("a page without WebGL fails fast: no script download, the GPU reason in the
   assert.equal(page.scripts.length, 0); // the 4.5 MB bundle stays unsent
   assert.equal(page.hp.scriptConfigs.length, 0);
   assert.notEqual(page.elements.get("hp-video").srcObject, null); // camera live
+});
+
+test("the REAL ml5 shape (promisified factory, no p5) runs the full pipeline — the phone regression", async () => {
+  // Default fake shape: handPose(config) returns a PROMISE resolving
+  // to the instance — what ml5 1.4.0 hands back with no p5 on the
+  // page. The phone saw instance.ready === undefined here.
+  const page = loadPerformerPage();
+  connectAndJoin(page);
+
+  await driveHandposeToRunning(page);
+  // Running: the button flipped to Stop, the note is empty.
+  assert.equal(page.button("handpose").textContent, "Stop");
+  assert.equal(page.note("handpose").textContent, "");
+
+  framesFlow(page);
+  page.hp.handsResult = fakePixelHands();
+  page.pumpIntervals();
+  await flushMicrotasks();
+
+  const sample = page.emitted.find(([e]) => e === "pnds:sensor:sample");
+  assert.ok(sample, "a sample must flow through the promise shape");
+  assert.equal(sample[1].handpose.hands, 1);
+
+  // Stop disposes the underlying model through the unwrapped instance.
+  page.button("handpose").dispatch("click");
+  await flushMicrotasks();
+  assert.equal(page.hp.disposedModels, 1);
+});
+
+test("the plain instance shape (ready on the object) also works", async () => {
+  const page = loadPerformerPage({ ml5Returns: "instance" });
+  connectAndJoin(page);
+
+  await driveHandposeToRunning(page);
+  assert.equal(page.button("handpose").textContent, "Stop"); // active
+  assert.equal(page.note("handpose").textContent, "");
+
+  framesFlow(page);
+  page.hp.handsResult = fakePixelHands();
+  page.pumpIntervals();
+  await flushMicrotasks();
+
+  const sample = page.emitted.find(([e]) => e === "pnds:sensor:sample");
+  assert.ok(sample, "a sample must flow through the instance shape");
+});
+
+test("an ml5 that returns neither shape lands in model-error with the verbatim reason", async () => {
+  const page = loadPerformerPage({ ml5Returns: "garbage" });
+  connectAndJoin(page);
+
+  page.button("handpose").dispatch("click");
+  await flushMicrotasks();
+
+  page.scripts[0].onload();
+  await flushMicrotasks();
+
+  const note = page.note("handpose").textContent;
+  assert.match(note, /neither an instance nor a promise/);
+  assert.notEqual(page.elements.get("hp-video").srcObject, null); // camera kept
 });
 
 test("stopping handpose releases loop, model and camera", async () => {

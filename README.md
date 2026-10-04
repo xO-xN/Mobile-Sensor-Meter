@@ -70,7 +70,7 @@ public/vendor/handpose/PINNED.json              sources + sha256 provenance
 
 `npm run fetch:handpose` re-verifies every file against its pinned sha256 and re-downloads only what changed (upstream changes fail loudly — re-pin deliberately). `GET /handpose/assets.json` reports the live inventory — including every shard name each model.json declares — and the phone's hand card names exactly what is missing instead of failing silently. Model/inference failures on the card carry the UNDERLYING reason verbatim (script fetch, tfjs init, WebGL absence); the fetch-script advice belongs to the one failure where it is true — an inventory with files actually missing. `npm install && npm start` is fully offline: nothing here talks to a CDN at runtime.
 
-**Real-device outcome** (first trial): the pipeline works — same-origin assets confirmed byte-identical through the App's HTTPS entry, model loads with zero CDN requests. One diagnosis-quality defect surfaced and is fixed: every model failure used to say "run npm run fetch:handpose" even when the assets were present; the card now shows the real reason, and a WebGL-less page is probed and named before any download. Remaining for the next trial: the mirrored-preview/keypoint alignment in both orientations (portrait/landscape), the portrait coordinate mapping, and the achievable inference rate / duration on target devices.
+**Real-device outcome** (trials 1–2): the pipeline works — same-origin assets confirmed byte-identical through the App's HTTPS entry, model weights fetch with zero CDN requests. Two defects surfaced and are fixed: (1) every model failure used to say "run npm run fetch:handpose" even when the assets were present — the card now shows the real reason, and a WebGL-less page is probed and named before any download; (2) the REAL blocker: ml5 1.4.0, with no p5 on the page, replaces every factory with a promise-returning one, so `handPose(config)` resolves to the instance instead of returning it — the wrapper now accepts both shapes, and the vm tests drive the promise shape (the one the phone actually runs). Remaining for the next trial: the mirrored-preview/keypoint alignment in both orientations (portrait/landscape), the portrait coordinate mapping, and the achievable inference rate / duration on target devices.
 
 ### Standalone trusted-HTTPS trial
 
@@ -194,7 +194,7 @@ public/vendor/handpose/PINNED.json              来源与 sha256 溯源
 
 `npm run fetch:handpose` 逐文件核对固定 sha256、只重下载有变化的（上游变化会显式失败——换版本必须有意重固定）。`GET /handpose/assets.json` 报告实时清单——包括每份 model.json 声明的全部分片名——手机端的手部卡片会点名缺了什么，而不是无说明地失败。卡片上的模型 / 推理失败携带**底层原因原文**（脚本拉取、tfjs 初始化、WebGL 缺失）；fetch 脚本的建议只属于唯一成立的失败——清单里真有文件缺失。`npm install && npm start` 完全离线可用：运行时不与任何 CDN 通信。
 
-**实机记录**（首轮）：链路可用——同源资产经 App 的 HTTPS 入口逐字节核对一致，模型加载零 CDN 请求。暴露并修复了一个诊断质量缺陷：此前任何模型失败都提示「运行 npm run fetch:handpose」，即使资产齐全；现在卡片显示真实原因，且无 WebGL 的页面会先被探测并点名，不再白下任何东西。待下一轮实机核实：镜像预览与关键点叠加在竖屏 / 横屏两种方向下的对齐、竖屏坐标映射、以及目标设备上实际可达的推理速率 / 耗时。
+**实机记录**(第 1–2 轮)：链路可用——同源资产经 App 的 HTTPS 入口逐字节核对一致，模型权重零 CDN 拉取。暴露并修复了两个缺陷：(1) 此前任何模型失败都提示「运行 npm run fetch:handpose」，即使资产齐全——现在卡片显示真实原因，且无 WebGL 的页面会先被探测并点名，不再白下任何东西；(2) **真正的拦路虎**：ml5 1.4.0 在页面没有 p5 时会把所有工厂替换成返回 Promise 的版本，`handPose(config)` 是「resolve 出实例」而非直接返回实例——包装层现在两种形状都接住，替身测试默认驱动 Promise 形状（手机实际运行的那条路径）。待下一轮实机核实：镜像预览与关键点叠加在竖屏 / 横屏两种方向下的对齐、竖屏坐标映射、以及目标设备上实际可达的推理速率 / 耗时。
 
 ### 独立可信 HTTPS 试验
 

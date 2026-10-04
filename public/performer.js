@@ -331,18 +331,59 @@ function loadVendorScript(src) {
 // ml5's wrapper exposes no dispose of its own; the underlying
 // hand-pose-detection detector has one — release the GPU memory
 // through it when present.
+//
+// ml5 1.4.0 hands back TWO shapes here, and both must work: with no p5
+// on the page (always, for us) its setupP5Integration REPLACES every
+// factory with a promise-returning one — handPose(config) resolves to
+// the instance once the local weights are in. A real instance with a
+// .ready promise is the other shape. (The phone found this the hard
+// way: instance.ready was undefined on the PROMISE, and the note said
+// so once failures spoke their reason.)
 function wrapMl5HandPose(config) {
-  const instance = window.ml5.handPose(config);
+  const handed = window.ml5.handPose(config);
+  const thenable = (value) => Boolean(value) && typeof value.then === "function";
 
-  return {
-    ready: instance.ready,
-    detect: (media) => instance.detect(media),
-    dispose() {
-      if (instance.model && typeof instance.model.dispose === "function") {
-        instance.model.dispose();
-      }
-    },
-  };
+  if (thenable(handed)) {
+    // The promisified factory. detect/dispose must reach the instance
+    // that only exists after the promise resolves; a stop during the
+    // load still disposes — the controller's late-guard calls
+    // dispose() after ready settles, by which time real is set.
+    let real = null;
+
+    return {
+      ready: handed.then((instance) => {
+        if (!instance || typeof instance.detect !== "function") {
+          throw new Error("ml5 handPose() resolved without a usable instance");
+        }
+
+        real = instance;
+        return instance;
+      }),
+      detect: (media) => real.detect(media),
+      dispose() {
+        if (real && real.model && typeof real.model.dispose === "function") {
+          real.model.dispose();
+        }
+      },
+    };
+  }
+
+  if (handed && thenable(handed.ready)) {
+    return {
+      ready: handed.ready,
+      detect: (media) => handed.detect(media),
+      dispose() {
+        if (handed.model && typeof handed.model.dispose === "function") {
+          handed.model.dispose();
+        }
+      },
+    };
+  }
+
+  throw new Error(
+    "ml5 handPose() returned neither an instance nor a promise: " +
+      String(handed),
+  );
 }
 
 function hpVideo() {

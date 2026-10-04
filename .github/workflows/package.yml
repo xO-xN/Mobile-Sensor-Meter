@@ -1,0 +1,152 @@
+name: Package release
+
+# The release artifact is a `.pnds` bundle (PNDS Project Bundle
+# Specification §2: one project root + a top-level pnds-bundle.json, zip
+# deflate) — the canonical distribution format for every PNDS project.
+#
+# PNDS App never runs an install step during a performance, so a released
+# score project has to ship its production dependencies already installed.
+#
+# The bundle is assembled from an explicit ALLOWLIST rather than by
+# excluding unwanted paths: anything not named below (docs, tests, the
+# fetch script, CI config) stays out of the performance bundle by
+# construction. `public/vendor/` is COMMITTED and sha256-pinned
+# (PINNED.json): the verify step re-checks every asset before packaging,
+# so a tampered model file never reaches a release, and the phone loads
+# ml5 + the handpose models from this project's own origin at runtime —
+# zero CDN requests.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to package (e.g. v0.1.0)'
+        required: true
+        type: string
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+      BUNDLE: dist/Mobile Sensor Meter
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the Node runtime range declared in package.json.
+          node-version: '24'
+
+      - name: Install production dependencies
+        run: npm ci --omit=dev
+
+      - name: Verify the pinned model assets
+        run: npm run fetch:handpose
+
+      - name: Assemble runnable project bundle
+        run: |
+          mkdir -p "$BUNDLE"
+          cp manifest.json package.json server.js "$BUNDLE/"
+          cp -R lib public node_modules "$BUNDLE/"
+          cp .github/bundle/README.md "$BUNDLE/README.md"
+          cp .github/bundle/README.zh-CN.md "$BUNDLE/README.zh-CN.md"
+          find "$BUNDLE" -name '.DS_Store' -delete
+          find "$BUNDLE" -name '.lh' -type d -prune -exec rm -rf {} +
+
+      - name: Verify bundle contents
+        run: |
+          node -e '
+            const fs = require("fs");
+            const deps = Object.keys(require("./package.json").dependencies);
+            const missing = deps.filter(
+              d => !fs.existsSync(`${process.env.BUNDLE}/node_modules/${d}`)
+            );
+            if (missing.length) {
+              throw new Error("missing from bundle: " + missing.join(", "));
+            }
+            console.log(`all ${deps.length} production dependencies present`);
+          '
+          for f in docs test .github scripts AGENTS.md \
+                   .gitignore package-lock.json; do
+            if [ -e "$BUNDLE/$f" ]; then
+              echo "::error::$f must not be in the performance bundle"
+              exit 1
+            fi
+          done
+          # The offline model assets are the bundle's reason to exist as a
+          # release: assert the vendored files are present and non-empty.
+          test -s "$BUNDLE/public/vendor/ml5.min.js"
+          test -s "$BUNDLE/public/vendor/handpose/detector/model.json"
+          test -s "$BUNDLE/public/vendor/handpose/detector/group1-shard1of1.bin"
+          test -s "$BUNDLE/public/vendor/handpose/landmark/model.json"
+          test -s "$BUNDLE/public/vendor/handpose/landmark/group1-shard1of1.bin"
+          echo "--- bundle contents ---"
+          find "$BUNDLE" -maxdepth 2 -not -path '*/node_modules/*' | sort
+
+      - name: Smoke-test the bundle
+        run: |
+          cd "$BUNDLE"
+          node server.js &
+          SERVER_PID=$!
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            sleep 1
+            if curl -sf http://127.0.0.1:6868/__pnds/health -o /tmp/health.json; then
+              break
+            fi
+          done
+          cat /tmp/health.json
+          grep -q '"status":"ready"' /tmp/health.json
+          grep -q '"audioMode":"none"' /tmp/health.json
+          curl -sf http://127.0.0.1:6868/handpose/assets.json -o /tmp/assets.json
+          cat /tmp/assets.json
+          node -e '
+            const a = JSON.parse(require("fs").readFileSync("/tmp/assets.json", "utf8"));
+            if (a.ok !== true || a.missing.length !== 0) {
+              throw new Error("handpose assets incomplete: " + JSON.stringify(a.missing));
+            }
+            console.log("handpose assets complete");
+          '
+          kill "$SERVER_PID"
+
+      - name: Create .pnds bundle
+        run: |
+          cat > dist/pnds-bundle.json <<EOF
+          {
+            "formatVersion": 1,
+            "packedWith": "${VERSION}",
+            "packedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "sourcePlatform": "$(echo "${RUNNER_OS}-${RUNNER_ARCH}" | tr '[:upper:]' '[:lower:]')"
+          }
+          EOF
+          cd dist && zip -q -r -X "../mobile-sensor-meter-${VERSION}.pnds" "Mobile Sensor Meter" pnds-bundle.json
+          cd .. && ls -lh "mobile-sensor-meter-${VERSION}.pnds"
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Mobile Sensor Meter ${{ env.VERSION }}
+          draft: true
+          files: mobile-sensor-meter-*.pnds
+          body: |
+            A PNDS score project that meters the phones' sensors: tilt, motion,
+            microphone level and hand pose (processed on-device by a local
+            model), streamed live to the monitor.
+
+            > [!IMPORTANT]
+            > Download **`mobile-sensor-meter-${{ env.VERSION }}.pnds`** from the Assets below.
+            >
+            > Do **not** download "Source code (zip)" or "Source code (tar.gz)",
+            > and do not use the green "Code → Download ZIP" button. Those contain
+            > the source only, without the installed Node.js dependencies.
+            >
+            > The `.pnds` bundle installs directly into PNDS App: double-click it
+            > (or press ⌘O in the App). It unpacks the `Mobile Sensor Meter` project with its
+            > `node_modules` directory ready to run.
+            >
+            > Built from https://github.com/xO-xN/Mobile-Sensor-Meter

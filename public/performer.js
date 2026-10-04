@@ -336,15 +336,14 @@ function loadVendorScript(src) {
 // - ml5 1.4.0, with no p5 on the page, replaces every factory with a
 //   promise-returning one — handPose(config) resolves to the instance
 //   instead of returning it. This wrapper awaits both shapes.
-// - tf.ready() prefers the WebGPU backend where present, and tfjs
-//   4.22's WebGPU backend uploads VIDEO elements as BLANK textures —
-//   the palm detector then sees black frames and finds no hand,
-//   forever, on every WebGPU browser (reproduced with identical
-//   pixels: webgpu 0 hands, webgl and cpu 1 hand). The backend is
-//   pinned to WebGL — which reads video correctly and exists wherever
-//   this model can run at all — BEFORE the detector's weights load;
-//   CPU is the fallback. Static images were never affected, which is
-//   exactly why every earlier check looked healthy.
+// - The backend is pinned to WebGL (CPU fallback) BEFORE the weights
+//   load: tf.ready() prefers WebGPU where present, and this model has
+//   no honest GPU path for video on tfjs 4.22 — WebGPU uploads video
+//   elements as blank frames (zero hands), WebGL's video upload poisons
+//   the GL state and every later inference returns NaN (a constant
+//   phantom hand, since NaN scores bypass the 0.5 threshold). The
+//   WebGL pin keeps the GPU speed for the canvas-frame input that
+//   hpFrameCopy() feeds — pixel-verified honest on every engine.
 function wrapMl5HandPose(config) {
   let real = null;
 
@@ -389,6 +388,45 @@ function hpVideo() {
   return document.getElementById("hp-video");
 }
 
+// The frame the model sees: an OFFSCREEN 2d-canvas copy of the video,
+// refreshed per tick. tfjs 4.22's GPU backends must NEVER touch the
+// video element — WebGL's texImage2D from a MediaStream video corrupts
+// the GL state and every inference afterwards returns NaN (NaN scores
+// then bypass the 0.5 detector threshold, so the card reads a constant
+// phantom hand), and WebGPU uploads videos as blank frames. A 2d
+// canvas copy reads back honestly on every engine (pixel-verified),
+// costs ~1–2 ms at 640×480, and the preview keeps its own video
+// element untouched. No frames yet → null (the controller skips the
+// tick; "no frames" is not "no hand").
+const hpFrame = typeof document !== "undefined" && document.createElement
+  ? document.createElement("canvas")
+  : null;
+
+function hpFrameCopy() {
+  const video = hpVideo();
+
+  if (!video || video.videoWidth === 0 || video.videoHeight === 0 || !hpFrame) {
+    return null;
+  }
+
+  if (hpFrame.width !== video.videoWidth) {
+    hpFrame.width = video.videoWidth;
+  }
+
+  if (hpFrame.height !== video.videoHeight) {
+    hpFrame.height = video.videoHeight;
+  }
+
+  const context = hpFrame.getContext("2d");
+
+  if (!context) {
+    return null;
+  }
+
+  context.drawImage(video, 0, 0, hpFrame.width, hpFrame.height);
+  return hpFrame;
+}
+
 const handpose = new HPL.HandPoseController(
   {
     now: () => performance.now(),
@@ -405,7 +443,7 @@ const handpose = new HPL.HandPoseController(
     detachStream() {
       hpVideo().srcObject = null;
     },
-    media: () => hpVideo(),
+    media: hpFrameCopy,
     mediaSize() {
       const video = hpVideo();
       return video && video.videoWidth > 0

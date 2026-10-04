@@ -180,6 +180,7 @@ function loadPerformerPage(options = {}) {
     scriptConfigs: [],
     disposedModels: 0,
     detects: 0,
+    mediaInputs: [],
     handsResult: [],
     detectError: null,
     // Present when options.tfFake: records the backend calls so tests
@@ -249,6 +250,7 @@ function loadPerformerPage(options = {}) {
           },
           detect(media) {
             hpHarness.detects += 1;
+            hpHarness.mediaInputs.push(media);
             void media;
 
             if (hpHarness.detectError) {
@@ -324,15 +326,25 @@ function loadPerformerPage(options = {}) {
         element.onerror = null;
         element.src = "";
         if (tag === "canvas") {
-          // The WebGL probe's stand-in: options.webgl === false reads
-          // as a page with no GPU context (Low Power Mode & friends);
-          // otherwise a healthy context that can be released.
-          element.getContext = () =>
-            options.webgl === false
+          element.width = 0;
+          element.height = 0;
+          element.getContext = (type) => {
+            if (type === "2d") {
+              // The offscreen frame copy: count the draws so tests can
+              // prove the model is fed a canvas copy, not the video.
+              element.drawImageCalls = (element.drawImageCalls || 0) + 1;
+              return { drawImage() {} };
+            }
+
+            // The WebGL probe's stand-in: options.webgl === false reads
+            // as a page with no GPU context (Low Power Mode & friends);
+            // otherwise a healthy context that can be released.
+            return options.webgl === false
               ? null
               : {
                   getExtension: () => ({ loseContext() {} }),
                 };
+          };
         }
         return element;
       },
@@ -832,6 +844,16 @@ test("enabling handpose runs the local pipeline: camera → vendor script → lo
   assert.equal(sample[1].seq, 1);
   assert.equal(sample[1].handpose.hands, 1);
   assert.equal(sample[1].handpose.keypoints.length, 21);
+
+  // The model is fed the OFFSCREEN CANVAS COPY of the video — never
+  // the video element (tfjs's GPU video uploads are broken: WebGL
+  // poisons the GL state with NaN, WebGPU uploads blanks).
+  assert.ok(page.hp.mediaInputs.length >= 1);
+  const fed = page.hp.mediaInputs[0];
+  assert.equal(fed.tagName, "canvas");
+  assert.ok(fed.drawImageCalls >= 1);
+  assert.notEqual(fed, page.elements.get("hp-video"));
+
   // Pixel coordinates are normalized before the wire: [0,1], and the
   // values are REAL numbers (a hand WAS detected).
   assert.ok(Math.abs(sample[1].handpose.keypoints[1].x - 30 / 640) < 1e-9);

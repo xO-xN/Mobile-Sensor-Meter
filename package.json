@@ -1,6 +1,6 @@
 {
   "name": "mobile-sensor-meter",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "PNDS score project that meters the phone's sensors: phones actively capture tilt (alpha/beta/gamma), motion (acceleration, shake), microphone level (RMS/peak/dBFS) and hand pose (local ml5.js HandPose keypoints) on-device and stream the processed values to the monitor over Socket.IO.",
   "main": "server.js",

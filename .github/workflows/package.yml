@@ -40,10 +40,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           # Matches the Node runtime range declared in package.json.
-          node-version: '24'
+          node-version: '24.18.1'
 
       - name: Install production dependencies
-        run: npm ci --omit=dev
+        run: npm ci --omit=dev --ignore-scripts
 
       - name: Verify the pinned model assets
         run: npm run fetch:handpose

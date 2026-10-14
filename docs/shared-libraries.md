@@ -1,6 +1,6 @@
-# v0.4.1 固定共享库接线
+# v0.4.2 固定共享库接线
 
-本版 manifest.schemaVersion 为 2，sharedLibraries 声明确切运行库。只在 App v1.6.2 或支持这些引用的 Host 中运行；旧 App 不能执行共享引用。本地 standalone 开发用 npm ci 安装 package-lock 的精确依赖，Host 运行不会安装或下载。
+本版 manifest.schemaVersion 为 2，sharedLibraries 声明确切运行库。只在 App v1.6.2 或支持这些引用的 Host 中运行；旧 App 不能执行共享引用。本地 standalone 开发用 npm ci --ignore-scripts 安装 package-lock 的精确依赖，Host 运行不会安装或下载。
 
 本工具明确声明 `scoreServer.needsHttps: true` 与 `supportsPerformerUrl: true`，因为手机传感器、摄像头和麦克风使用安全上下文 API。App 仅对这种明确需求启用已配置的 HTTPS 入口；普通工程默认 HTTP。共享库引用本身不构成 HTTPS 需求，QR、复制地址与页面连接使用 Host 决定的同一网址。
 
@@ -14,3 +14,5 @@ Mobile 的 ml5 1.4.0 与 tfjs/lite 模型分别检查：库由 /__pnds/shared/ml
 
 验证记录（2026-10-14）：npm run check 与 npm test 全绿（159 tests）；缺项、版本错误、缺文件、无本地依赖的共享启动与关停已通过受控进程回归。模型、真实手机、声音、原生 App 和安装验收按支持模式分别记录，不由这些回归替代。
 Chromium 149.0.7827.102 的断公网验证通过：固定共享 ml5 1.4.0、工程 tfjs/lite 四个模型文件实际加载并完成 WebGL 计算；256×256 灰色 canvas 输入得到真实零手结果，耗时约7015 ms。未请求摄像头、麦克风或运动权限；这条自动证据不覆盖实体设备。后续用户于 2026-10-14 明确确认 Template 与四个 Utilities 已测试完成、无问题，补齐本工程人工验收；不自行补写设备型号或测试时长。复验命令：`node scripts/verify-shared-browser.mjs <App共享目录> <playwright模块> <Chromium可执行文件>`。
+
+发布维护（0.4.2）：ml5 npm 包的 postinstall 依赖其开发用 patch-package；本工程只消费已编译浏览器分发，维护安装采用 `npm ci --ignore-scripts`。四个模型与运行源码保持不变，0.4.1 的已验收行为沿用；旧 tag 保留，固定新产物来自 0.4.2。

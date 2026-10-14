@@ -25,4 +25,4 @@
 monitor 跟随 App 的语言与主题；手机页按设备语言自选。
 
 
-运行条件：本版采用固定 App 共享库，需 PNDS App v1.6.2 或更新且具备 manifest 声明的确切资源。工程包不重复携带运行库；创作机 standalone 调试仍可 npm ci。详情见维护仓库 docs/shared-libraries.md。
+运行条件：本版采用固定 App 共享库，需 PNDS App v1.6.2 或更新且具备 manifest 声明的确切资源。工程包不重复携带运行库；创作机 standalone 调试仍可 npm ci --ignore-scripts。详情见维护仓库 docs/shared-libraries.md。

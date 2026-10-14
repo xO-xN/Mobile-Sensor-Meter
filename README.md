@@ -59,7 +59,7 @@ Device states on the monitor: `live` / `waiting for samples` / `stopped updating
 ### Getting Started
 
 ```sh
-npm install
+npm ci --ignore-scripts
 npm start    # performer: http://<Host-LAN-IP>:6868/ · monitor: http://<Host-LAN-IP>:6869/
 ```
 
@@ -78,7 +78,7 @@ public/vendor/handpose/landmark/group1-shard1of1.bin
 public/vendor/handpose/PINNED.json              sources + sha256 provenance
 ```
 
-`npm run fetch:handpose` re-verifies the four project model files against their pinned sha256 and re-downloads only what changed (upstream changes fail loudly — re-pin deliberately). `GET /handpose/assets.json` reports the live inventory — including every shard name each model.json declares — and the phone's hand card names exactly what is missing instead of failing silently. Model/inference failures on the card carry the UNDERLYING reason verbatim (script fetch, tfjs init, WebGL absence); the fetch-script advice belongs to the one failure where it is true — an inventory with files actually missing. After local development dependencies have been prepared with `npm ci`, `npm start` uses no runtime CDN. The shared `.pnds` runs from the exact App resources without local npm installation.
+`npm run fetch:handpose` re-verifies the four project model files against their pinned sha256 and re-downloads only what changed (upstream changes fail loudly — re-pin deliberately). `GET /handpose/assets.json` reports the live inventory — including every shard name each model.json declares — and the phone's hand card names exactly what is missing instead of failing silently. Model/inference failures on the card carry the UNDERLYING reason verbatim (script fetch, tfjs init, WebGL absence); the fetch-script advice belongs to the one failure where it is true — an inventory with files actually missing. After local development dependencies have been prepared with `npm ci --ignore-scripts`, `npm start` uses no runtime CDN. The shared `.pnds` runs from the exact App resources without local npm installation.
 
 **Real-device outcome** (trials 1–2): the pipeline works — same-origin assets confirmed byte-identical through the App's HTTPS entry, model weights fetch with zero CDN requests. Two defects surfaced and are fixed: (1) every model failure used to say "run npm run fetch:handpose" even when the assets were present — the card now shows the real reason, and a WebGL-less page is probed and named before any download; (2) the REAL blocker: ml5 1.4.0, with no p5 on the page, replaces every factory with a promise-returning one, so `handPose(config)` resolves to the instance instead of returning it — the wrapper now accepts both shapes, and the vm tests drive the promise shape (the one the phone actually runs). (3) Trial 2's hands-always-0, then a phantom hand (constant 1 regardless of content): the model must NEVER read the video element on tfjs 4.22 — WebGPU uploads video frames as blank textures (zero hands), and WebGL's video texture poisons the GL state so every later inference returns NaN, whose scores bypass the 0.5 threshold (a constant phantom hand; the corruption survives a backend switch because the weights read back NaN). The fix: each tick copies the frame to an offscreen 2d canvas (pixel-verified honest on every engine, ~1–2 ms at 640×480) and the model runs on that, with the backend pinned to WebGL — CPU fallback — before the weights load. Real-device trials (desktop browser + phone) then confirmed the full pipeline: enable → preview → local model → live keypoints on both ends, monitor mini window drawing the hand. Still worth watching in longer shows: the mirrored-preview/keypoint alignment across portrait/landscape rotations and the achievable inference rate / duration per device.
 
@@ -192,7 +192,7 @@ Brutal 同步方角硬阴影。底部展开「设备加入」查看二维码及�
 ### 快速开始
 
 ```sh
-npm install
+npm ci --ignore-scripts
 npm start    # performer: http://<Host-LAN-IP>:6868/ · monitor: http://<Host-LAN-IP>:6869/
 ```
 
@@ -211,7 +211,7 @@ public/vendor/handpose/landmark/group1-shard1of1.bin
 public/vendor/handpose/PINNED.json              来源与 sha256 溯源
 ```
 
-`npm run fetch:handpose` 对四个工程模型文件逐项核对固定 sha256、只重下载有变化的（上游变化会显式失败——换版本必须有意重固定）。`GET /handpose/assets.json` 报告实时清单——包括每份 model.json 声明的全部分片名——手机端的手部卡片会点名缺了什么，而不是无说明地失败。卡片上的模型 / 推理失败携带**底层原因原文**（脚本拉取、tfjs 初始化、WebGL 缺失）；fetch 脚本的建议只属于唯一成立的失败——清单里真有文件缺失。独立开发用 `npm ci` 准备本地依赖后，`npm start` 运行时不与任何 CDN 通信；共享 `.pnds` 使用 App 的确切资源，不在工程启动时安装 npm 依赖。
+`npm run fetch:handpose` 对四个工程模型文件逐项核对固定 sha256、只重下载有变化的（上游变化会显式失败——换版本必须有意重固定）。`GET /handpose/assets.json` 报告实时清单——包括每份 model.json 声明的全部分片名——手机端的手部卡片会点名缺了什么，而不是无说明地失败。卡片上的模型 / 推理失败携带**底层原因原文**（脚本拉取、tfjs 初始化、WebGL 缺失）；fetch 脚本的建议只属于唯一成立的失败——清单里真有文件缺失。独立开发用 `npm ci --ignore-scripts` 准备本地依赖后，`npm start` 运行时不与任何 CDN 通信；共享 `.pnds` 使用 App 的确切资源，不在工程启动时安装 npm 依赖。
 
 **实机记录**(第 1–2 轮)：链路可用——同源资产经 App 的 HTTPS 入口逐字节核对一致，模型权重零 CDN 拉取。暴露并修复了两个缺陷：(1) 此前任何模型失败都提示「运行 npm run fetch:handpose」，即使资产齐全——现在卡片显示真实原因，且无 WebGL 的页面会先被探测并点名，不再白下任何东西；(2) **真正的拦路虎**：ml5 1.4.0 在页面没有 p5 时会把所有工厂替换成返回 Promise 的版本，`handPose(config)` 是「resolve 出实例」而非直接返回实例——包装层现在两种形状都接住，替身测试默认驱动 Promise 形状（手机实际运行的那条路径）。（3）第 2 轮的「手数恒 0」及其后的「幻影手」（无论有无手恒为 1）：模型绝不能直接读视频元素——tfjs 4.22 的 WebGPU 把视频帧上传成空白纹理（恒 0 手），WebGL 的视频纹理上传会毒化 GL 状态，此后一切推理返回 NaN，而 NaN 分数绕过 0.5 阈值（恒 1 幻影手；换后端也无法恢复，因为权重读回即 NaN）。修复：每个 tick 先把帧拷贝到离屏 2d canvas（逐像素验证各引擎均诚实，640×480 约 1–2 ms），模型只吃 canvas,并在权重加载前把后端钉到 WebGL（CPU 兜底）。实机验证（桌面浏览器 + 手机）确认全链路可用：启用 → 预览 → 本地模型 → 双端实时关键点，monitor 骨架小窗同步画出手型。长演出中仍值得留意：竖屏 / 横屏旋转下的镜像对齐，以及各设备实际可达的推理速率 / 耗时。
 
@@ -267,4 +267,4 @@ npm test        # node --test：行为 + 集成测试
 MIT —— 见 [LICENSE](LICENSE)。
 
 
-Runtime requirements: PNDS App v1.6.2 or a Host supporting the exact shared libraries in manifest.json. The project bundle carries references and project assets; standalone development can still use npm ci. See docs/shared-libraries.md in the source repository.
+Runtime requirements: PNDS App v1.6.2 or a Host supporting the exact shared libraries in manifest.json. The project bundle carries references and project assets; standalone development can still use npm ci --ignore-scripts. See docs/shared-libraries.md in the source repository.

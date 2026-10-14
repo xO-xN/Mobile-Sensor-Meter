@@ -51,4 +51,4 @@ The monitor follows the App's language and theme; the phone page picks its
 language from the device.
 
 
-Runtime requirements: PNDS App v1.6.2 or a Host supporting the exact shared libraries in manifest.json. The project bundle carries references and project assets; standalone development can still use npm ci. See docs/shared-libraries.md in the source repository.
+Runtime requirements: PNDS App v1.6.2 or a Host supporting the exact shared libraries in manifest.json. The project bundle carries references and project assets; standalone development can still use npm ci --ignore-scripts. See docs/shared-libraries.md in the source repository.

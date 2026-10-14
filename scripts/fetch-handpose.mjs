@@ -1,7 +1,7 @@
-// Fetches and pins every runtime asset the handpose leg (#144) serves
+// Fetches and pins every project-owned model asset the handpose leg (#144) serves
 // from THIS project's own origin — no CDN at runtime:
 //
-//   public/vendor/ml5.min.js                          ml5.js 1.4.0 dist
+//   ml5.js 1.4.0 is provided by the fixed Host shared reference.
 //   public/vendor/handpose/detector/model.json       MediaPipe hand
 //   public/vendor/handpose/detector/group1-shard1of1.bin   detector (lite)
 //   public/vendor/handpose/landmark/model.json       hand landmark (lite)
@@ -34,10 +34,6 @@ const PINNED = {
   runtime: "tfjs",
   modelType: "lite",
   files: {
-    "ml5.min.js": {
-      url: `https://cdn.jsdelivr.net/npm/ml5@${ML5_VERSION}/dist/ml5.min.js`,
-      sha256: "5facbc15115a5f0277f0e99e634ffe606f5382c9efd72d5092d9701aaaf680c5",
-    },
     "handpose/detector/model.json": {
       url: "https://tfhub.dev/mediapipe/tfjs-model/handpose_3d/detector/lite/1/model.json?tfjs-format=file",
       sha256: "2de2e139e240169c9794c21676b8ca94da2bbc0146a3e0664133ce66e021b1a5",

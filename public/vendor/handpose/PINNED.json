@@ -3,10 +3,6 @@
   "runtime": "tfjs",
   "modelType": "lite",
   "files": {
-    "ml5.min.js": {
-      "url": "https://cdn.jsdelivr.net/npm/ml5@1.4.0/dist/ml5.min.js",
-      "sha256": "5facbc15115a5f0277f0e99e634ffe606f5382c9efd72d5092d9701aaaf680c5"
-    },
     "handpose/detector/model.json": {
       "url": "https://tfhub.dev/mediapipe/tfjs-model/handpose_3d/detector/lite/1/model.json?tfjs-format=file",
       "sha256": "2de2e139e240169c9794c21676b8ca94da2bbc0146a3e0664133ce66e021b1a5"

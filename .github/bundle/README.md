@@ -15,6 +15,10 @@ A PNDS utility that meters a phone's sensors live: each joined phone captures it
    with a public certificate) and let the router's DNS resolve that domain to
    this Mac, then the QR code carries the trusted `https://` address. Over
    plain HTTP those two cards read "unsupported" — by design.
+
+   This tool explicitly declares `needsHttps: true` because of its sensor
+   APIs; ordinary touch and QR projects use HTTP by default. The App chooses
+   the address shared by the QR and page connection configuration.
 3. Expand **Join devices** at the bottom of the monitor and scan the QR code on
    each phone; keep the page open.
 4. On the phone, enable the cards you need — tilt & motion, microphone, hand
@@ -45,3 +49,6 @@ reclaims its number on reconnect.
 
 The monitor follows the App's language and theme; the phone page picks its
 language from the device.
+
+
+Runtime requirements: PNDS App v1.6.2 or a Host supporting the exact shared libraries in manifest.json. The project bundle carries references and project assets; standalone development can still use npm ci. See docs/shared-libraries.md in the source repository.

@@ -116,6 +116,8 @@ test("an empty vendor tree reports everything missing, without throwing", () => 
 test("the committed vendor tree of THIS project reads ok (the real assets)", () => {
   const assets = readHandposeAssets(
     path.join(__dirname, "..", "public", "vendor"),
+    fs,
+    require.resolve("ml5/dist/ml5.min.js"),
   );
 
   assert.equal(assets.ok, true);
@@ -123,4 +125,24 @@ test("the committed vendor tree of THIS project reads ok (the real assets)", () 
   assert.ok(assets.detector.modelJson.bytes > 1000);
   assert.deepEqual(assets.detector.declaredShards, ["group1-shard1of1.bin"]);
   assert.deepEqual(assets.landmark.declaredShards, ["group1-shard1of1.bin"]);
+});
+
+test("shared ml5 is checked separately while both models remain in the project", t => {
+  const dir = writeVendor({
+    "handpose/detector/model.json": modelJson(["detector.bin"]),
+    "handpose/detector/detector.bin": "weights",
+    "handpose/landmark/model.json": modelJson(["landmark.bin"]),
+    "handpose/landmark/landmark.bin": "weights",
+  });
+  const library = path.join(dir, "shared-ml5.js");
+  fs.writeFileSync(library, "/* fixed shared runtime */");
+  const assets = readHandposeAssets(dir, fs, library);
+  assert.equal(assets.ok, true);
+  assert.equal(assets.ml5.file, "/__pnds/shared/ml5.js");
+  fs.unlinkSync(library);
+  const missing = readHandposeAssets(dir, fs, library);
+  assert.equal(missing.ok, false);
+  assert.deepEqual(missing.missing, ["/__pnds/shared/ml5.js"]);
+  assert.deepEqual(missing.detector.missing, []);
+  assert.deepEqual(missing.landmark.missing, []);
 });

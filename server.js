@@ -16,7 +16,8 @@
 // - shuts down cleanly on SIGINT / SIGTERM
 
 const path = require("node:path");
-const express = require("express");
+const libraries = require("./lib/shared-libraries");
+const express = libraries.requireLibrary("express");
 
 const {
   loadManifest,
@@ -86,6 +87,9 @@ const performerUrl = resolvePerformerUrl(
 const app = express();
 const monitorApp = express();
 
+libraries.attachBrowserRoutes(app);
+libraries.attachBrowserRoutes(monitorApp);
+
 app.use(express.static(path.join(PROJECT_ROOT, "public")));
 monitorApp.use(express.static(path.join(PROJECT_ROOT, "public")));
 
@@ -131,12 +135,13 @@ monitorApp.get("/__pnds/health", health.handler());
 monitorApp.get("/qr", qrHandler(performerUrl));
 
 // The handpose leg's local-asset inventory (#144): everything the phone
-// would request from /vendor/ — ml5 itself, both model.json files and
+// would request from the shared library route and /vendor/ models — both model.json files and
 // every shard their manifests declare — checked for presence on THIS
 // origin. The page uses it to say precisely what is missing (the fix is
 // `npm run fetch:handpose` on the host), never to fall back to a CDN.
+const ml5File = libraries.browserFile("ml5");
 app.get("/handpose/assets.json", (_request, response) => {
-  response.json(readHandposeAssets(path.join(PROJECT_ROOT, "public", "vendor")));
+  response.json(readHandposeAssets(path.join(PROJECT_ROOT, "public", "vendor"), undefined, ml5File));
 });
 
 // ------------------------------------------------------------
@@ -153,37 +158,29 @@ const hub = new SensorHub({ staleAfterMs: resolveStaleAfterMs(process.env) });
 // Startup
 // ------------------------------------------------------------
 
-const server = app.listen(serverConfig.performerPort, "0.0.0.0", () => {
+const server = app.listen(serverConfig.performerPort, "0.0.0.0", (error) => {
+  if (error) {
+    console.error(`Performer HTTP server failed on port ${serverConfig.performerPort}:`, error);
+    process.exit(1);
+  }
   printRuntimeInfo();
 });
 
 const monitorServer = monitorApp.listen(
   serverConfig.monitorPort,
   "0.0.0.0",
-  () => {
+  (error) => {
+    if (error) {
+      console.error(`Monitor HTTP server failed on port ${serverConfig.monitorPort}:`, error);
+      process.exit(1);
+    }
     console.log(
       `Monitor page: http://${hostLanIp}:${serverConfig.monitorPort}/`,
     );
   },
 );
 
-server.on("error", (error) => {
-  console.error(
-    `Performer HTTP server failed on port ${serverConfig.performerPort}:`,
-    error,
-  );
-  process.exitCode = 1;
-});
-
-monitorServer.on("error", (error) => {
-  console.error(
-    `Monitor HTTP server failed on port ${serverConfig.monitorPort}:`,
-    error,
-  );
-  process.exitCode = 1;
-});
-
-const io = require("socket.io")(server, {
+const io = libraries.requireLibrary("socket.io")(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],

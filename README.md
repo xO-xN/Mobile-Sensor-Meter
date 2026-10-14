@@ -10,7 +10,7 @@ A PNDS score project that meters what phones expose to the browser — **tilt** 
 
 Network-only on the server: no audio engine, no SuperCollider; the server always runs with audio disabled (`none` mode). No camera; the camera and microphone are used only after the user's explicit Enable taps, processed on-device (hand keypoints, level numbers), and never recorded or played back — no raw media of any kind leaves the phone, only processed numbers. No cloud inference either: the handpose leg's ml5.js bundle and both TFJS models are served from this project's own origin (below). No hub, no cloud. Stack: Node.js, Express, Socket.IO.
 
-Adapted to the App's trusted-HTTPS entry contract (`scoreServer.supportsPerformerUrl: true`): the same project runs unchanged over plain HTTP, over the App's HTTPS entry, or over a standalone HTTPS trial (below).
+This work declares `scoreServer.needsHttps: true` for its secure-context sensor APIs and `supportsPerformerUrl: true` for full-URL compatibility. With the App's HTTPS switch enabled and valid entry configuration, its QR uses the trusted HTTPS address. Ordinary touch/QR projects default to HTTP. Plain HTTP remains available for diagnostics, with unavailable sensor capabilities reported on their cards; a standalone HTTPS trial is described below.
 
 ### Instrument panels (v0.3.1)
 
@@ -31,7 +31,7 @@ resource lifetimes, genuine zeros/nulls and frame-rate smoothing stay unchanged.
 - **Honest freshness**: "live" derives from actual sample timestamps only. A heartbeat can never dress stale data as live; a backgrounded page reads "paused"; a sensor that stopped updating reads "stopped updating"; authorized-but-sampleless reads "waiting for samples".
 - **Deliberate capture**: each sensor is enabled by an explicit tap (iOS requires the permission prompt inside a user gesture) and has an explicit stop. Late permission results and late sensor events after a stop never restart or mutate a stopped capture — a getUserMedia grant landing after the user stopped releases its stream immediately and reports the fact only.
 - **The mic is released, not paused**: the microphone is an exclusive resource, so Stop, page-leave and backgrounding all release the stream and the analysis graph (tracks stopped, AudioContext closed) — the phone's mic indicator goes dark. Returning to the foreground silently re-acquires if the user had left it on; a stopped capture never restarts itself. The captured audio is never played back (the analysis graph never connects to a destination) and never leaves the phone.
-- **Hand pose, fully local (#144)**: the phone runs ml5.js 1.4.0's HandPose (tfjs runtime, WebGL — Safari WebGPU not required) with the **lite** palm-detector and landmark models, all served from THIS project's origin (`public/vendor/`, pinned by `npm run fetch:handpose`) — **zero CDN requests at runtime**. The camera and the model are separate stages with separate failures: the preview can be live while the model is missing, and a loaded model is not a completed inference. The model never reads the video element: each tick copies the frame to an offscreen 2d canvas first (tfjs 4.22's GPU video uploads are broken — WebGPU uploads blanks, WebGL's poisons the GL state into NaN and a phantom hand), and the backend is pinned to WebGL (CPU fallback) before the weights load. Every failure SPEAKS: model and inference failures show the underlying reason verbatim on the card (a WebGL-less page — e.g. iOS Low Power Mode — is probed first and named, saving the 4.5 MB download), and the `npm run fetch:handpose` advice appears only when the assets inventory actually reports files missing. **No hand is a result** (hands: 0), never an error; an inference that throws is its own state. The camera is released on Stop / page-leave / backgrounding while the model stays loaded for a fast, silent resume; only the latest processed result rides the wire — never video.
+- **Hand pose, fully local (#144)**: the phone runs ml5.js 1.4.0's HandPose (tfjs runtime, WebGL — Safari WebGPU not required) with the **lite** palm-detector and landmark models, all served from THIS project's origin (ml5 via the exact Host-shared `/__pnds/shared/ml5.js`; four model files in `public/vendor/handpose/`, pinned by `npm run fetch:handpose`) — **zero CDN requests at runtime**. The camera and the model are separate stages with separate failures: the preview can be live while the model is missing, and a loaded model is not a completed inference. The model never reads the video element: each tick copies the frame to an offscreen 2d canvas first (tfjs 4.22's GPU video uploads are broken — WebGPU uploads blanks, WebGL's poisons the GL state into NaN and a phantom hand), and the backend is pinned to WebGL (CPU fallback) before the weights load. Every failure SPEAKS: model and inference failures show the underlying reason verbatim on the card (a WebGL-less page — e.g. iOS Low Power Mode — is probed first and named, saving the 4.5 MB download), and the `npm run fetch:handpose` advice appears only when the assets inventory actually reports files missing. **No hand is a result** (hands: 0), never an error; an inference that throws is its own state. The camera is released on Stop / page-leave / backgrounding while the model stays loaded for a fast, silent resume; only the latest processed result rides the wire — never video.
 - **Bounded rates, fluid display**: capture ≤60 Hz and send ≤30 Hz — two independent gates; only the latest processed sample is ever sent, so a disconnect never replays history. The monitor renders at frame rate (`requestAnimationFrame`), each value exponentially approaching the newest sample — the SuperCollider control-rate idea: low-rate computation, continuous presentation. No rate counters anywhere — with one deliberate exception (#144): the handpose card shows its inference duration and update rate, because there they ARE the measurement.
 - **No ghost devices**: a device that disconnects stays on the monitor for a short grace window (a network blip must not flicker its card), then leaves the roster — a stray tab or link preview that joined once never sits there forever. Identity is unaffected: the returning phone recovers its device id.
 
@@ -70,7 +70,7 @@ Expand **Join devices** in the monitor footer and scan its QR with a phone, tap 
 Everything the handpose leg loads at runtime comes from this server's own origin — `public/vendor/` is committed and pinned:
 
 ```
-public/vendor/ml5.min.js                        ml5.js 1.4.0 (bundles TFJS)
+/__pnds/shared/ml5.js                          Host-shared ml5.js 1.4.0 (bundles TFJS)
 public/vendor/handpose/detector/model.json      MediaPipe hand detector (lite)
 public/vendor/handpose/detector/group1-shard1of1.bin
 public/vendor/handpose/landmark/model.json      hand landmark model (lite)
@@ -78,7 +78,7 @@ public/vendor/handpose/landmark/group1-shard1of1.bin
 public/vendor/handpose/PINNED.json              sources + sha256 provenance
 ```
 
-`npm run fetch:handpose` re-verifies every file against its pinned sha256 and re-downloads only what changed (upstream changes fail loudly — re-pin deliberately). `GET /handpose/assets.json` reports the live inventory — including every shard name each model.json declares — and the phone's hand card names exactly what is missing instead of failing silently. Model/inference failures on the card carry the UNDERLYING reason verbatim (script fetch, tfjs init, WebGL absence); the fetch-script advice belongs to the one failure where it is true — an inventory with files actually missing. `npm install && npm start` is fully offline: nothing here talks to a CDN at runtime.
+`npm run fetch:handpose` re-verifies the four project model files against their pinned sha256 and re-downloads only what changed (upstream changes fail loudly — re-pin deliberately). `GET /handpose/assets.json` reports the live inventory — including every shard name each model.json declares — and the phone's hand card names exactly what is missing instead of failing silently. Model/inference failures on the card carry the UNDERLYING reason verbatim (script fetch, tfjs init, WebGL absence); the fetch-script advice belongs to the one failure where it is true — an inventory with files actually missing. After local development dependencies have been prepared with `npm ci`, `npm start` uses no runtime CDN. The shared `.pnds` runs from the exact App resources without local npm installation.
 
 **Real-device outcome** (trials 1–2): the pipeline works — same-origin assets confirmed byte-identical through the App's HTTPS entry, model weights fetch with zero CDN requests. Two defects surfaced and are fixed: (1) every model failure used to say "run npm run fetch:handpose" even when the assets were present — the card now shows the real reason, and a WebGL-less page is probed and named before any download; (2) the REAL blocker: ml5 1.4.0, with no p5 on the page, replaces every factory with a promise-returning one, so `handPose(config)` resolves to the instance instead of returning it — the wrapper now accepts both shapes, and the vm tests drive the promise shape (the one the phone actually runs). (3) Trial 2's hands-always-0, then a phantom hand (constant 1 regardless of content): the model must NEVER read the video element on tfjs 4.22 — WebGPU uploads video frames as blank textures (zero hands), and WebGL's video texture poisons the GL state so every later inference returns NaN, whose scores bypass the 0.5 threshold (a constant phantom hand; the corruption survives a backend switch because the weights read back NaN). The fix: each tick copies the frame to an offscreen 2d canvas (pixel-verified honest on every engine, ~1–2 ms at 640×480) and the model runs on that, with the backend pinned to WebGL — CPU fallback — before the weights load. Real-device trials (desktop browser + phone) then confirmed the full pipeline: enable → preview → local model → live keypoints on both ends, monitor mini window drawing the hand. Still worth watching in longer shows: the mirrored-preview/keypoint alignment across portrait/landscape rotations and the achievable inference rate / duration per device.
 
@@ -144,7 +144,7 @@ PNDS 仪表工程（Mobile Sensor Meter）：检验手机浏览器提供的传�
 
 服务端纯网络：无音频引擎、无 SuperCollider，始终以 `none` 模式运行。无摄像头作为数据；摄像头与麦克风只在用户主动点「启用」后使用、在手机本地处理（手部关键点、电平数值），从不录音、从不回放——任何原始媒体都不离开手机，只传处理后的数值。也无云推理：handpose 的 ml5.js 与两份 TFJS 模型全部由本工程自己的 origin 提供（见下）。不依赖 hub 或云。
 
-已适配 App 的可信 HTTPS 入口契约（`scoreServer.supportsPerformerUrl: true`）：同一份代码在纯 HTTP、App HTTPS 入口、独立 HTTPS 试验（见下）下行为一致。
+本工程为需要安全上下文的传感器 API 声明 `scoreServer.needsHttps: true`，并以 `supportsPerformerUrl: true` 声明完整网址兼容能力。App 的 HTTPS 开关开启且入口配置有效时，二维码使用可信 HTTPS 地址；普通触控与扫码工程默认 HTTP。纯 HTTP 仍可用于诊断，缺失的传感器能力会在卡片上如实显示；独立 HTTPS 试验见下。
 
 ### 仪器面板（v0.3.1）
 
@@ -164,7 +164,7 @@ Brutal 同步方角硬阴影。底部展开「设备加入」查看二维码及�
 - **诚实的新鲜度**：「实时」只由真实样本时间戳决定——心跳冒充不了新样本；页面后台显示「已暂停」；停止更新显示「已停止更新」；授权了但没样本显示「等待样本」。
 - **主动采集**：每个传感器由用户点击启用（iOS 要求权限弹窗在用户手势内触发）、显式停止；停止后的迟到授权结果与迟到事件不会重启或改写已停止的采集——用户停止后才到达的 getUserMedia 授权会**立刻释放它带来的流**、只报告事实。
 - **麦克风是释放、不是暂停**：麦克风是独占资源，停止、离开页面、后台都**释放**流与分析图（停轨道、关 AudioContext）——手机的话筒指示灯熄灭。回到前台时若用户此前开着，则静默重新获取；已停止的采集绝不自行重启。采到的声音从不回放（分析图永不连 destination）、从不离开手机。
-- **手部姿态，完全本地（#144）**：手机运行 ml5.js 1.4.0 的 HandPose（tfjs runtime、WebGL——不要求 Safari WebGPU）与 **lite** 掌部检测 / 关键点模型，全部由**本工程自己的 origin** 提供（`public/vendor/`，`npm run fetch:handpose` 固定）——**运行时零 CDN 请求**。摄像头与模型是两个阶段、两种失败：预览可以活着而模型缺失，模型就绪也不等于推理完成。模型绝不直接读视频元素：每个 tick 先把帧拷贝到离屏 2d canvas（tfjs 4.22 的 GPU 视频上传是坏的——WebGPU 上传空白、WebGL 毒化 GL 状态成 NaN 幻影手），并在权重加载前把后端钉到 WebGL（CPU 兜底）。每种失败都会**说话**：模型与推理失败在卡片上原样显示底层原因（先探测 WebGL——例如 iOS 低电量模式会禁用——并点名，省掉 4.5 MB 下载），而 `npm run fetch:handpose` 的建议只在资产清单确实缺文件时出现。**未检测到手是结果**（hands: 0），不是错误；推理抛错自成一态。摄像头在停止 / 离开页面 / 后台时释放，模型则保留供回前台快速静默恢复；线上只传最新处理结果——绝不传视频。
+- **手部姿态，完全本地（#144）**：手机运行 ml5.js 1.4.0 的 HandPose（tfjs runtime、WebGL——不要求 Safari WebGPU）与 **lite** 掌部检测 / 关键点模型，全部由**本工程自己的 origin** 提供（ml5 经确切共享 `/__pnds/shared/ml5.js` 提供，工程 `public/vendor/handpose/` 的四个模型文件由 `npm run fetch:handpose` 固定）——**运行时零 CDN 请求**。摄像头与模型是两个阶段、两种失败：预览可以活着而模型缺失，模型就绪也不等于推理完成。模型绝不直接读视频元素：每个 tick 先把帧拷贝到离屏 2d canvas（tfjs 4.22 的 GPU 视频上传是坏的——WebGPU 上传空白、WebGL 毒化 GL 状态成 NaN 幻影手），并在权重加载前把后端钉到 WebGL（CPU 兜底）。每种失败都会**说话**：模型与推理失败在卡片上原样显示底层原因（先探测 WebGL——例如 iOS 低电量模式会禁用——并点名，省掉 4.5 MB 下载），而 `npm run fetch:handpose` 的建议只在资产清单确实缺文件时出现。**未检测到手是结果**（hands: 0），不是错误；推理抛错自成一态。摄像头在停止 / 离开页面 / 后台时释放，模型则保留供回前台快速静默恢复；线上只传最新处理结果——绝不传视频。
 - **限频有界、显示流畅**：采集 ≤60 Hz、发送 ≤30 Hz 两级独立限频；只发送最新处理值，断线不重放历史。monitor 以帧率（`requestAnimationFrame`）渲染，每个数值向最新样本指数逼近——SuperCollider control rate 的思路：低速率计算、连续呈现。页面各处不显示任何速率计数——唯一有意的例外是手部卡（#144）：它显示推理耗时与更新率，因为那正是被测的量。
 - **不留幽灵设备**：设备断开后卡片保留一个短暂宽限期（网络抖动不闪烁），随后从名册消失——误入的标签页或链接预览不会永远占着控制台。身份不受影响：回来的手机恢复原设备号。
 
@@ -203,7 +203,7 @@ npm start    # performer: http://<Host-LAN-IP>:6868/ · monitor: http://<Host-LA
 handpose 运行时加载的一切都来自本服务器自己的 origin——`public/vendor/` 已提交并固定：
 
 ```
-public/vendor/ml5.min.js                        ml5.js 1.4.0（内含 TFJS）
+/__pnds/shared/ml5.js                          App 共享 ml5.js 1.4.0（内含 TFJS）
 public/vendor/handpose/detector/model.json      MediaPipe 掌部检测（lite）
 public/vendor/handpose/detector/group1-shard1of1.bin
 public/vendor/handpose/landmark/model.json      手部关键点模型（lite）
@@ -211,7 +211,7 @@ public/vendor/handpose/landmark/group1-shard1of1.bin
 public/vendor/handpose/PINNED.json              来源与 sha256 溯源
 ```
 
-`npm run fetch:handpose` 逐文件核对固定 sha256、只重下载有变化的（上游变化会显式失败——换版本必须有意重固定）。`GET /handpose/assets.json` 报告实时清单——包括每份 model.json 声明的全部分片名——手机端的手部卡片会点名缺了什么，而不是无说明地失败。卡片上的模型 / 推理失败携带**底层原因原文**（脚本拉取、tfjs 初始化、WebGL 缺失）；fetch 脚本的建议只属于唯一成立的失败——清单里真有文件缺失。`npm install && npm start` 完全离线可用：运行时不与任何 CDN 通信。
+`npm run fetch:handpose` 对四个工程模型文件逐项核对固定 sha256、只重下载有变化的（上游变化会显式失败——换版本必须有意重固定）。`GET /handpose/assets.json` 报告实时清单——包括每份 model.json 声明的全部分片名——手机端的手部卡片会点名缺了什么，而不是无说明地失败。卡片上的模型 / 推理失败携带**底层原因原文**（脚本拉取、tfjs 初始化、WebGL 缺失）；fetch 脚本的建议只属于唯一成立的失败——清单里真有文件缺失。独立开发用 `npm ci` 准备本地依赖后，`npm start` 运行时不与任何 CDN 通信；共享 `.pnds` 使用 App 的确切资源，不在工程启动时安装 npm 依赖。
 
 **实机记录**(第 1–2 轮)：链路可用——同源资产经 App 的 HTTPS 入口逐字节核对一致，模型权重零 CDN 拉取。暴露并修复了两个缺陷：(1) 此前任何模型失败都提示「运行 npm run fetch:handpose」，即使资产齐全——现在卡片显示真实原因，且无 WebGL 的页面会先被探测并点名，不再白下任何东西；(2) **真正的拦路虎**：ml5 1.4.0 在页面没有 p5 时会把所有工厂替换成返回 Promise 的版本，`handPose(config)` 是「resolve 出实例」而非直接返回实例——包装层现在两种形状都接住，替身测试默认驱动 Promise 形状（手机实际运行的那条路径）。（3）第 2 轮的「手数恒 0」及其后的「幻影手」（无论有无手恒为 1）：模型绝不能直接读视频元素——tfjs 4.22 的 WebGPU 把视频帧上传成空白纹理（恒 0 手），WebGL 的视频纹理上传会毒化 GL 状态，此后一切推理返回 NaN，而 NaN 分数绕过 0.5 阈值（恒 1 幻影手；换后端也无法恢复，因为权重读回即 NaN）。修复：每个 tick 先把帧拷贝到离屏 2d canvas（逐像素验证各引擎均诚实，640×480 约 1–2 ms），模型只吃 canvas,并在权重加载前把后端钉到 WebGL（CPU 兜底）。实机验证（桌面浏览器 + 手机）确认全链路可用：启用 → 预览 → 本地模型 → 双端实时关键点，monitor 骨架小窗同步画出手型。长演出中仍值得留意：竖屏 / 横屏旋转下的镜像对齐，以及各设备实际可达的推理速率 / 耗时。
 
@@ -265,3 +265,6 @@ npm test        # node --test：行为 + 集成测试
 ### 许可
 
 MIT —— 见 [LICENSE](LICENSE)。
+
+
+Runtime requirements: PNDS App v1.6.2 or a Host supporting the exact shared libraries in manifest.json. The project bundle carries references and project assets; standalone development can still use npm ci. See docs/shared-libraries.md in the source repository.

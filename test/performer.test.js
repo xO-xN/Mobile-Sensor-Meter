@@ -813,7 +813,7 @@ async function driveHandposeToRunning(page) {
 
   // Camera granted → the lazy ml5 load starts (same-origin vendor).
   assert.equal(page.scripts.length, 1);
-  assert.equal(page.scripts[0].src, "/vendor/ml5.min.js");
+  assert.equal(page.scripts[0].src, "/__pnds/shared/ml5.js");
   page.scripts[0].onload();
   await flushMicrotasks();
 }
@@ -915,7 +915,7 @@ test("a failed vendor script load is model-error WITH THE REASON; the preview ke
   // everything is present — the npm advice would be a wrong turn).
   const note = page.note("handpose").textContent;
   assert.match(note, /Model load failed/);
-  assert.match(note, /vendor\/ml5\.min\.js/);
+  assert.match(note, /__pnds\/shared\/ml5\.js/);
   assert.doesNotMatch(note, /fetch:handpose/);
   // The camera is still attached — the preview is the evidence that
   // the camera path works while the model path does not.

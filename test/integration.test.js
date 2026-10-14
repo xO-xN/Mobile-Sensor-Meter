@@ -563,7 +563,7 @@ test("the handpose asset inventory endpoint reports the committed local assets",
   assert.equal(payload.ok, true);
   assert.deepEqual(payload.missing, []);
   assert.equal(payload.runtime, "tfjs");
-  assert.equal(payload.ml5.file, "ml5.min.js");
+  assert.equal(payload.ml5.file, "/__pnds/shared/ml5.js");
   assert.ok(payload.ml5.bytes > 1_000_000);
   assert.deepEqual(payload.detector.declaredShards, ["group1-shard1of1.bin"]);
   assert.deepEqual(payload.landmark.declaredShards, ["group1-shard1of1.bin"]);

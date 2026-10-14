@@ -340,7 +340,7 @@ function isCapturing(state) {
 
 // The lazy loader for the SAME-ORIGIN ml5 bundle: nothing of ml5 costs
 // a byte until the user actually enables the hand card, and what loads
-// comes from this server's /vendor/ — never a CDN. A bundle that has
+// comes from this server's /__pnds/shared/ — never a CDN. A bundle that has
 // already loaded resolves immediately: a re-enable (e.g. after a model
 // error) must not re-execute the script.
 const loadedVendorScripts = new Set();
@@ -517,7 +517,7 @@ const handpose = new HPL.HandPoseController(
       return null;
     },
     createModel: wrapMl5HandPose,
-    scriptSrc: "/vendor/ml5.min.js",
+    scriptSrc: "/__pnds/shared/ml5.js",
     modelUrls: {
       detectorModelUrl: "/vendor/handpose/detector/model.json",
       landmarkModelUrl: "/vendor/handpose/landmark/model.json",

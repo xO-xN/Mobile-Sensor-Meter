@@ -7,6 +7,7 @@ Node 24 + Express + Socket.IO，纯网络工程（audio none）。
 ## 规则
 
 - 只用 npm；完成标准：`npm run check` + `npm test` 全绿；新逻辑随改动带测试。
+- 本工程的摄像头、麦克风与手机传感器依赖安全上下文，manifest 声明 `scoreServer.needsHttps: true` 与 `supportsPerformerUrl: true`。Host 按工程需求决定入口，QR 与浏览器使用同一完整网址；普通触控工程默认 HTTP，字段语义以 App 的 `reference/manifest.md` 为准。
 - 传感器数值规则是契约：零是真实读数、null 是缺失，两者绝不合并（页面上 null 显示「不可用」）。「未检测到手」（hands 0 + 空 keypoints）同属真实结果，不是错误。
 - 新鲜度只来自真实样本时间戳；心跳、状态广播都不算新样本。
 - 停止后的迟到事件 / 迟到授权结果 / 迟到模型结果不得改写或重启采集（epoch / attempt 守卫）；迟到的摄像头授权与模型就绪要立刻释放其携带的资源。
@@ -14,9 +15,8 @@ Node 24 + Express + Socket.IO，纯网络工程（audio none）。
 - 已断开设备的卡片保留 10 秒宽限期后从 monitor 名册消失（render.js `DISCONNECTED_HIDE_AFTER_MS`）；服务端 claim 不受影响，重连恢复原设备号。
 - 手机端逻辑全部在 public/sensor-logic.js、public/mic-logic.js 与 public/handpose-logic.js（Node 可 require），测试驱动的是手机运行的同一份代码。
 - 麦克风（#143）是独占资源：停止 / 离开页面 / 后台都释放流与 AudioContext；分析图永不连 destination（不回放）；迟到授权只报告事实并立刻释放流。RMS / 峰值量纲为归一化 FS，电平为 dBFS（地板 −90，mic-logic.js `MIC_LEVEL_FLOOR_DB`）——未经校准，绝不称 dB SPL。mic 的 seq 在控制器生命周期内单调递增、从不重置（服务端记录跨暂停存活，重置会被当作重放拒收）。getUserMedia 只在用户手势内请求；非安全上下文（纯 HTTP）下 mediaDevices 不存在，读「不支持」并提示需要 HTTPS。
-- 手部姿态（#144）：ml5.js 1.4.0（tfjs/WebGL runtime）+ lite 掌部检测与关键点模型，全部由本站 origin 提供——`public/vendor/` 已提交并固定（`npm run fetch:handpose` 校验 sha256；`GET /handpose/assets.json` 报告清单与缺失）。运行时零 CDN 请求；ml5 只在用户启用手部卡后才懒加载。摄像头与模型是独立阶段、独立失败态（预览活着 ≠ 模型就绪 ≠ 推理完成）。摄像头在停止 / 离开页面 / 后台释放，模型在后台保留（是内存不是设备）、停止才 dispose（ml5 未暴露 dispose，经 `instance.model.dispose()`）。关键点上线前归一化：模型输出像素坐标，除以视频宽高得 [0,1]（原点左上、未镜像——预览的镜像只是 CSS）；线上只传最新结果（推理节奏 ≤10 Hz）+ 推理耗时 + 更新率，绝不传视频。seq 单调不重置（同 mic）。monitor 的关键点详情在 `<details>` 内按 seq 刷新——帧循环绝不重建该元素。
+- 手部姿态（#144）：ml5.js 1.4.0（tfjs/WebGL runtime）由 App 确切共享引用经本站 `/__pnds/shared/ml5.js` 提供；lite 掌部检测与关键点的四个模型文件仍在工程 `public/vendor/handpose/`，由 `npm run fetch:handpose` 校验 sha256。`GET /handpose/assets.json` 分别报告共享库和模型清单；修改引用／模型时先读 `docs/shared-libraries.md`。运行时零 CDN 请求；ml5 只在用户启用手部卡后才懒加载。摄像头与模型是独立阶段、独立失败态（预览活着 ≠ 模型就绪 ≠ 推理完成）。摄像头在停止 / 离开页面 / 后台释放，模型在后台保留（是内存不是设备）、停止才 dispose（ml5 未暴露 dispose，经 `instance.model.dispose()`）。关键点上线前归一化：模型输出像素坐标，除以视频宽高得 [0,1]（原点左上、未镜像——预览的镜像只是 CSS）；线上只传最新结果（推理节奏 ≤10 Hz）+ 推理耗时 + 更新率，绝不传视频。seq 单调不重置（同 mic）。monitor 的关键点详情在 `<details>` 内按 seq 刷新——帧循环绝不重建该元素。
 
 ## 任务追踪
 
-本工程的实现任务暂挂 PNDS App 仓库的 issue（xO-xN/PNDS-App）；独立仓库与
-Utilities 发布清单待真机验收后建立。
+本工程维护于 xO-xN/Mobile-Sensor-Meter；共享迁移与 App 接入追踪 PNDS App #217／#199。实机验收已获用户确认；正式 Utilities 清单只接入真实固定发布产物，本地暂存不是发行来源。

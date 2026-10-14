@@ -203,7 +203,7 @@ function makePlatform(options = {}) {
         },
       };
     },
-    scriptSrc: "/vendor/ml5.min.js",
+    scriptSrc: "/__pnds/shared/ml5.js",
     ...(options.webglProbe === undefined
       ? {}
       : { webglProbe: () => options.webglProbe }),
@@ -270,7 +270,7 @@ test("the happy path: camera → local model → running, with the pinned local 
   assert.equal(platform.state.attached, 1); // the preview is live
   assert.equal(controller.stateOf(), "loading-model");
   assert.equal(platform.state.scripts.length, 1); // the lazy ml5 load
-  assert.equal(platform.state.scripts[0], "/vendor/ml5.min.js");
+  assert.equal(platform.state.scripts[0], "/__pnds/shared/ml5.js");
 
   await platform.state.scriptResults[0].resolve();
   await flush();
@@ -350,7 +350,7 @@ test("a failed script load (missing vendor assets) is model-error; the CAMERA KE
 
   // The card shows the REAL reason — the script that failed to load,
   // not a blanket "run the fetch script" (the assets may all exist).
-  assert.match(controller.failureDetail(), /vendor\/ml5\.min\.js/);
+  assert.match(controller.failureDetail(), /__pnds\/shared\/ml5\.js/);
 
   // Recoverable: the next Enable starts the whole pipeline over.
   controller.start();

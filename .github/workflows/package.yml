@@ -5,7 +5,7 @@ name: Package release
 # deflate) — the canonical distribution format for every PNDS project.
 #
 # PNDS App never runs an install step during a performance, so a released
-# score project has to ship its production dependencies already installed.
+# score project uses the Host's exact shared production libraries.
 #
 # The bundle is assembled from an explicit ALLOWLIST rather than by
 # excluding unwanted paths: anything not named below (docs, tests, the
@@ -52,7 +52,7 @@ jobs:
         run: |
           mkdir -p "$BUNDLE"
           cp manifest.json package.json server.js "$BUNDLE/"
-          cp -R lib public node_modules "$BUNDLE/"
+          cp -R lib public "$BUNDLE/"
           cp .github/bundle/README.md "$BUNDLE/README.md"
           cp .github/bundle/README.zh-CN.md "$BUNDLE/README.zh-CN.md"
           find "$BUNDLE" -name '.DS_Store' -delete
@@ -62,14 +62,17 @@ jobs:
         run: |
           node -e '
             const fs = require("fs");
-            const deps = Object.keys(require("./package.json").dependencies);
-            const missing = deps.filter(
-              d => !fs.existsSync(`${process.env.BUNDLE}/node_modules/${d}`)
-            );
-            if (missing.length) {
-              throw new Error("missing from bundle: " + missing.join(", "));
+            const manifest = require("./manifest.json");
+            const refs = new Map(manifest.sharedLibraries.map(item => [item.id, item.version]));
+            const deps = Object.entries(require("./package.json").dependencies);
+            const missing = deps.filter(([id, version]) => refs.get(id) !== version);
+            if (missing.length || manifest.schemaVersion !== 2) {
+              throw new Error("uncovered shared dependency: " + JSON.stringify(missing));
             }
-            console.log(`all ${deps.length} production dependencies present`);
+            if (fs.existsSync(`${process.env.BUNDLE}/node_modules`)) {
+              throw new Error("shared bundle must not copy node_modules");
+            }
+            console.log(`all ${deps.length} production dependencies have exact shared references`);
           '
           for f in docs test .github scripts AGENTS.md \
                    .gitignore package-lock.json; do
@@ -80,7 +83,6 @@ jobs:
           done
           # The offline model assets are the bundle's reason to exist as a
           # release: assert the vendored files are present and non-empty.
-          test -s "$BUNDLE/public/vendor/ml5.min.js"
           test -s "$BUNDLE/public/vendor/handpose/detector/model.json"
           test -s "$BUNDLE/public/vendor/handpose/detector/group1-shard1of1.bin"
           test -s "$BUNDLE/public/vendor/handpose/landmark/model.json"
@@ -90,6 +92,7 @@ jobs:
 
       - name: Smoke-test the bundle
         run: |
+          export PNDS_SHARED_LIBRARIES="$(node scripts/shared-env.cjs)"
           cd "$BUNDLE"
           node server.js &
           SERVER_PID=$!
@@ -146,7 +149,6 @@ jobs:
             > the source only, without the installed Node.js dependencies.
             >
             > The `.pnds` bundle installs directly into PNDS App: double-click it
-            > (or press ⌘O in the App). It unpacks the `Mobile Sensor Meter` project with its
-            > `node_modules` directory ready to run.
+            > (or press ⌘O in the App). It unpacks the `Mobile Sensor Meter` project with exact shared references for PNDS App v1.6.2.
             >
             > Built from https://github.com/xO-xN/Mobile-Sensor-Meter

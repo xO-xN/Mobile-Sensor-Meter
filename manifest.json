@@ -1,18 +1,39 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "mobile-sensor-meter",
   "name": "Mobile Sensor Meter",
-  "version": "0.3.1",
+  "version": "0.4.1",
   "description": "PNDS score project that meters the phone's sensors: phones actively capture tilt, motion, microphone level and hand pose (local ml5.js HandPose) on-device and stream the processed values to the monitor over Socket.IO.",
   "scoreServer": {
     "entry": "server.js",
     "workingDirectory": ".",
     "performerPort": 6868,
     "monitorPort": 6869,
-    "supportsPerformerUrl": true
+    "supportsPerformerUrl": true,
+    "needsHttps": true
   },
   "audio": {
     "defaultMode": "none",
-    "supportedModes": ["none"]
-  }
+    "supportedModes": [
+      "none"
+    ]
+  },
+  "sharedLibraries": [
+    {
+      "id": "express",
+      "version": "5.3.0"
+    },
+    {
+      "id": "qrcode",
+      "version": "1.5.4"
+    },
+    {
+      "id": "socket.io",
+      "version": "4.8.4"
+    },
+    {
+      "id": "ml5",
+      "version": "1.4.0"
+    }
+  ]
 }

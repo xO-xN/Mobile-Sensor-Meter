@@ -1,6 +1,6 @@
 {
   "name": "mobile-sensor-meter",
-  "version": "0.3.1",
+  "version": "0.4.1",
   "private": true,
   "description": "PNDS score project that meters the phone's sensors: phones actively capture tilt (alpha/beta/gamma), motion (acceleration, shake), microphone level (RMS/peak/dBFS) and hand pose (local ml5.js HandPose keypoints) on-device and stream the processed values to the monitor over Socket.IO.",
   "main": "server.js",
@@ -10,15 +10,16 @@
   "scripts": {
     "start": "node server.js",
     "fetch:handpose": "node scripts/fetch-handpose.mjs",
-    "check": "node --check server.js && node --check lib/config.js && node --check lib/network.js && node --check lib/health.js && node --check lib/players.js && node --check lib/qr.js && node --check lib/lifecycle.js && node --check lib/sensors.js && node --check lib/handpose-assets.js && node --check scripts/fetch-handpose.mjs && node --check public/shared.js && node --check public/sensor-logic.js && node --check public/mic-logic.js && node --check public/handpose-logic.js && node --check public/render.js && node --check public/theme.js && node --check public/locale.js && node --check public/performer.js && node --check public/monitor.js",
+    "check": "node --check server.js && node --check lib/config.js && node --check lib/network.js && node --check lib/health.js && node --check lib/players.js && node --check lib/qr.js && node --check lib/lifecycle.js && node --check lib/sensors.js && node --check lib/handpose-assets.js && node --check scripts/fetch-handpose.mjs && node --check public/shared.js && node --check public/sensor-logic.js && node --check public/mic-logic.js && node --check public/handpose-logic.js && node --check public/render.js && node --check public/theme.js && node --check public/locale.js && node --check public/performer.js && node --check public/monitor.js && node --check lib/shared-libraries.js && node --check scripts/shared-env.cjs && node --check scripts/verify-shared-browser.mjs",
     "test": "node --test"
   },
   "dependencies": {
-    "express": "^4.21.2",
-    "qrcode": "^1.5.4",
-    "socket.io": "^4.8.1"
+    "express": "5.3.0",
+    "qrcode": "1.5.4",
+    "socket.io": "4.8.4",
+    "ml5": "1.4.0"
   },
   "devDependencies": {
-    "socket.io-client": "^4.8.3"
+    "socket.io-client": "4.8.4"
   }
 }

@@ -98,8 +98,8 @@ test("distributed project loads shared scripts, QR and a real Socket.IO connecti
     }
   }
   const qr = await fetch(`${project.monitor}/qr`);
-  assert.equal(qr.status, 200);
-  assert.equal(qr.headers.get("content-type"), "image/png");
+  assert.equal(qr.status, 404);
+
   const { io } = require("socket.io-client");
   const socket = io(project.performer, { transports: ["websocket"], reconnection: false });
   t.after(() => socket.close());

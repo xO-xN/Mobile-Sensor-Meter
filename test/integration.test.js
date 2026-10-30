@@ -210,15 +210,8 @@ test("__config.js injects role, projectId and the resolved performer URL", async
   }
 });
 
-test("the QR endpoint renders a PNG of the entry URL's page", async () => {
-  const response = await fetch(`${MONITOR_URL}/qr`);
-
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") || "", /image\/png/);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  // PNG magic.
-  assert.equal(buffer[0], 0x89);
-  assert.equal(buffer[1], 0x50);
+test("the QR endpoint is owned by the App rather than the project", async () => {
+  assert.equal((await fetch(`${MONITOR_URL}/qr`)).status, 404);
 });
 
 // Resolves with the first state broadcast matching the predicate, read

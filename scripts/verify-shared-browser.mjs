@@ -66,10 +66,9 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   page.on('response', response => { if (response.url().includes('/vendor/handpose/')) modelRequests.push({ path: new URL(response.url()).pathname, status: response.status() }); });
   await page.goto(origin);
-  await page.waitForFunction(() => typeof window.wrapMl5HandPose === 'function');
+  await page.waitForFunction(() => typeof window.HandPoseWorkerClient?.createModel === 'function');
   const inference = await page.evaluate(async () => {
-    await loadVendorScript('/__pnds/shared/ml5.js');
-    const model = wrapMl5HandPose({ maxHands: 1, runtime: 'tfjs', modelType: 'lite', detectorModelUrl: '/vendor/handpose/detector/model.json', landmarkModelUrl: '/vendor/handpose/landmark/model.json' });
+    const model = window.HandPoseWorkerClient.createModel({ maxHands: 1, runtime: 'tfjs', modelType: 'lite', detectorModelUrl: '/vendor/handpose/detector/model.json', landmarkModelUrl: '/vendor/handpose/landmark/model.json' });
     await model.ready;
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 256;
@@ -79,11 +78,12 @@ try {
     const started = performance.now();
     try {
       const hands = await model.detect(canvas);
-      return { hands: hands.length, elapsedMs: performance.now() - started, backend: window.ml5.tf.getBackend() };
+      return { hands: hands.length, elapsedMs: performance.now() - started, execution: 'dedicated-worker', mainMl5Loaded: Boolean(window.ml5) };
     } finally { model.dispose(); }
   });
   assert.equal(inference.hands, 0, 'a blank input should finish actual model computation with zero hands');
   assert.ok(inference.elapsedMs > 0);
+  assert.equal(inference.mainMl5Loaded, false, 'the page must never execute the ml5 bundle');
   assert.equal(modelRequests.length, 4);
   assert.ok(modelRequests.every(request => request.status === 200));
   assert.deepEqual(external, []);

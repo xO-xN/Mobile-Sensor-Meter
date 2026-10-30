@@ -16,9 +16,7 @@
       readConfig: function () {
         var cfg = root.__PNDS_CONFIG__;
         if (!cfg)
-          throw new Error(
-            "__PNDS_CONFIG__ not set — ensure __config.js loads before shared.js",
-          );
+          throw new Error("__PNDS_CONFIG__ not set — ensure __config.js loads before shared.js");
         return cfg;
       },
     });
@@ -160,8 +158,7 @@
         performer: {
           title: "Mobile Sensor Meter",
           sub: "Device sensors",
-          guide:
-            "Enable a sensor to share its readings. Keep this page open while testing.",
+          guide: "Enable a sensor to share its readings. Keep this page open while testing.",
           connecting: "Connecting…",
           connected: "Connected",
           rejected: "Rejected: ",
@@ -182,8 +179,7 @@
           peak: "Peak",
           level: "Level",
           sampleRate: "Sample rate",
-          micUnsupported:
-            "Microphone needs a secure (HTTPS) context — or is unsupported here",
+          micUnsupported: "Microphone needs a secure (HTTPS) context — or is unsupported here",
           micMeterNote:
             "Uncalibrated: FS = fraction of digital full scale; level is dBFS, floor −90",
           handposeTitle: "Hand (ml5 HandPose)",
@@ -193,12 +189,17 @@
           rateHz: "Update rate",
           keypointsLabel: "Keypoints",
           noHand: "No hand detected",
-          modelLoading: "Camera live — loading local model…",
+          runtimeLoading:
+            "Camera connected · Loading recognition engine… Other sensors keep running.",
+          modelLoading: "Camera connected · Loading hand model… Other sensors keep running.",
+          handposeWaitingFrame: "Model loaded · Waiting for a camera frame…",
+          handposeWarmingUp: "Preparing first recognition… Other sensors keep running.",
+          handposeReady: "Hand recognition ready",
+          handposeWorkerUnsupported:
+            "This browser cannot run hand recognition in the background. Update your browser and try again.",
           cameraAsk: "Tap Enable to grant camera access",
-          handposeUnsupported:
-            "Camera needs a secure (HTTPS) context — or is unsupported here",
-          modelError:
-            "Model failed to load — run npm run fetch:handpose on the host",
+          handposeUnsupported: "Camera needs a secure (HTTPS) context — or is unsupported here",
+          modelError: "Model failed to load — run npm run fetch:handpose on the host",
           modelFailedPrefix: "Model load failed:",
           inferenceError: "Inference failed — try enabling again",
           inferenceFailedPrefix: "Inference failed:",
@@ -225,10 +226,8 @@
           emptyTitle: "Connect your first device",
           join: "Join devices",
           footerHint: "Enable sensors on the phone to begin sharing readings.",
-          empty:
-            "No devices yet — expand Join devices below and scan the QR code",
+          empty: "No devices yet — expand Join devices below and scan the QR code",
           scan: "Scan to join as performer",
-          qrAlt: "QR code for the performer page",
           address: "Performer address",
           device: "Device ",
           tilt: "Tilt",
@@ -310,17 +309,20 @@
           rateHz: "更新率",
           keypointsLabel: "关键点",
           noHand: "未检测到手",
-          modelLoading: "摄像头已就绪——正在加载本地模型…",
+          runtimeLoading: "摄像头已连接 · 正在加载识别引擎…其他传感器继续采集。",
+          modelLoading: "摄像头已连接 · 正在加载手部模型…其他传感器继续采集。",
+          handposeWaitingFrame: "模型已加载 · 正在等待摄像头画面…",
+          handposeWarmingUp: "正在准备首次识别…其他传感器继续采集。",
+          handposeReady: "手部识别已就绪",
+          handposeWorkerUnsupported: "当前浏览器无法在后台运行手部识别，请更新浏览器后重试。",
           cameraAsk: "点「启用」授予摄像头权限",
           handposeUnsupported: "摄像头需要 HTTPS 安全上下文——或此浏览器不支持",
           modelError: "模型加载失败——请在 Host 上运行 npm run fetch:handpose",
           modelFailedPrefix: "模型加载失败：",
           inferenceError: "推理失败——请重新启用",
           inferenceFailedPrefix: "推理失败：",
-          webglUnavailable:
-            "此页面无法使用 WebGL——手部模型需要 GPU（iOS 低电量模式会禁用 WebGL）",
-          handposeConvention:
-            "关键点归一化 [0, 1]，原点左上，未镜像（模型坐标系）",
+          webglUnavailable: "此页面无法使用 WebGL——手部模型需要 GPU（iOS 低电量模式会禁用 WebGL）",
+          handposeConvention: "关键点归一化 [0, 1]，原点左上，未镜像（模型坐标系）",
           unavailable: "不可用",
           permissionDenied: "权限被拒绝 — 请在浏览器设置中允许",
           permissionAsk: "点「启用」授予传感器权限",
@@ -342,7 +344,6 @@
           footerHint: "在手机上启用传感器，开始共享读数。",
           empty: "还没有设备 — 展开下方「设备加入」并扫描二维码",
           scan: "扫码加入为测试设备",
-          qrAlt: "演奏者页面二维码",
           address: "演奏者地址",
           device: "设备 ",
           tilt: "倾斜",
@@ -383,8 +384,7 @@
           rateHz: "更新率",
           keypointsLabel: "关键点",
           noHand: "未检测到手",
-          handposeConvention:
-            "关键点归一化 [0, 1]，原点左上，未镜像（模型坐标系）",
+          handposeConvention: "关键点归一化 [0, 1]，原点左上，未镜像（模型坐标系）",
           unavailable: "不可用",
           ago: { just: "刚刚", seconds: " 秒前", minutes: " 分钟前" },
         },

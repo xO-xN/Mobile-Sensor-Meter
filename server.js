@@ -33,7 +33,6 @@ const {
   SensorHub,
   DEFAULT_STALE_AFTER_MS,
 } = require("./lib/sensors");
-const { qrHandler } = require("./lib/qr");
 const { readHandposeAssets } = require("./lib/handpose-assets");
 const { attachShutdown, closeHttpServer } = require("./lib/lifecycle");
 const shared = require("./public/shared");
@@ -128,11 +127,6 @@ const health = new HealthTracker({
 
 app.get("/__pnds/health", health.handler());
 monitorApp.get("/__pnds/health", health.handler());
-
-// QR code for the performer page, shown on the monitor page. Encodes
-// the same resolved performer URL the config and the copyable address
-// carry — one source, no drift.
-monitorApp.get("/qr", qrHandler(performerUrl));
 
 // The handpose leg's local-asset inventory (#144): everything the phone
 // would request from the shared library route and /vendor/ models — both model.json files and

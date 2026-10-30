@@ -10,12 +10,12 @@
 // loaded model; a loaded model is not a completed inference):
 //
 //   camera ──getUserMedia (user gesture)──▶ preview live
-//         ──loadScript (local vendor ml5)──▶ model loading
-//         ──ml5.handPose (local model URLs)─▶ inference loop (≤10 Hz)
+//         ──Worker (local ml5 and model URLs)──▶ model loading
+//         ──transferred canvas frame──▶ inference loop (≤10 Hz)
 //
 // Rules this module enforces:
 // - Everything the phone loads is SAME-ORIGIN: the ml5 script and both
-//   tfjs models come from this server's /vendor/ paths — no CDN at
+//   tfjs models use this server's shared-library and /vendor/ paths — no CDN at
 //   runtime. A resource the page cannot load is a diagnosable
 //   "model-error" state, never a fallback to some remote URL. The
 //   technical REASON behind a model/inference failure is kept
@@ -177,15 +177,13 @@
   //   releaseStream(stream)        stop a granted stream's tracks
   //   attachStream(stream) / detachStream() — bind/unbind the preview
   //                                element (page-owned DOM)
-  //   media()                      the preview element for detect()
+  //   media()                      a copied camera frame for detect()
   //   mediaSize()                  { width, height } of the frame, for
   //                                normalization (null until frames flow)
-  //   loadScript(src)              → Promise; lazy-loads the vendor ml5
-  //                                bundle ONLY when handpose is enabled
-  //   createModel(config)          → { ready: Promise, detect(media),
-  //                                dispose() } — the page passes
-  //                                ml5.handPose(config)
-  //   scriptSrc / modelUrls        the same-origin vendor locations
+  //   createModel(config, onProgress) → { ready: Promise, detect(media),
+  //                                dispose() } — starts a dedicated Worker
+  //                                for loading, initialization and inference
+  //   modelUrls                    the same-origin model locations
   //   schedule(fn, intervalMs)     → cancel() for the tick timer
   //
   // callbacks:
@@ -194,7 +192,7 @@
   //                                | model-error | running | error
   //   onPermission(permission)   — a camera permission fact (unsupported,
   //                                denied, late grants)
-  //   onStart(permission)        — inference actually began (the server
+  //   onStart(permission)        — inference loop started (the server
   //                                notification; silent re-acquisitions
   //                                after pause do NOT emit it)
   //   onStop(lastSample)         — the user's stop ended an active capture
@@ -212,7 +210,11 @@
       this.lastSample = null;
       this.stream = null;
       this.model = null;
+      this.loadingModel = null;
+      this.disposedModels = new WeakSet();
+      this.phase = null;
       this.busy = false; // an inference is in flight
+      this.inferenceEpoch = 0; // pause invalidates frames without discarding the model
       this.cancelTick = null;
       this.rate = new InferenceRate();
       this.notifiedStart = false; // onStart emitted since last stop?
@@ -223,8 +225,12 @@
       return this.state;
     }
 
+    phaseOf() {
+      return this.phase;
+    }
+
     // The technical reason behind the last "model-error"/"error"
-    // (script fetch, tfjs init, WebGL probe, inference fault) — null
+    // (worker/script load, tfjs init, inference fault) — null
     // once healthy or freshly restarted. The card shows it verbatim;
     // the npm-asset advice belongs to the OTHER failure (an assets
     // inventory that actually says files are missing).
@@ -245,6 +251,7 @@
       }
 
       this.failure = null; // a fresh attempt starts with a clean slate
+      this.phase = null;
       this.acquireCamera();
     }
 
@@ -302,22 +309,19 @@
             // straight into the loop (the server was notified at the
             // original start; the monotonic seq proves freshness).
             this.beginLoop(attempt);
-          } else if (this.state !== "loading-model") {
+          } else if (this.loadingModel === null) {
             this.loadModel(attempt);
+          } else {
+            this.state = "loading-model";
+            this.emit("onState", this.state);
           }
-          // Else: a load is already in flight (resume raced it) — it
-          // proceeds under its own unchanged token and begins the loop
-          // when ready.
         })
         .catch((error) => {
           if (attempt !== this.attempt) {
             return; // a late denial changes nothing
           }
 
-          if (
-            error &&
-            (error.name === "NotAllowedError" || error.name === "SecurityError")
-          ) {
+          if (error && (error.name === "NotAllowedError" || error.name === "SecurityError")) {
             this.state = "camera-denied";
             this.emit("onState", this.state);
             this.emit("onPermission", "denied");
@@ -329,82 +333,71 @@
         });
     }
 
-    // Stage two: the local vendor script, then the model from the
-    // local URLs. Any failure here is "model-error" — the CAMERA KEEPS
+    // Stage two: the Worker loads the local library and models. Any
+    // failure here is "model-error" — the CAMERA KEEPS
     // RUNNING (the preview is itself a diagnostic: it proves the camera
     // path works while the model path does not), and the REASON is
     // kept for the card to show.
     loadModel(attempt) {
-      // The cheap GPU question first: without a WebGL context the model
-      // cannot run, and knowing it now saves the phone the 4.5 MB
-      // script download. A platform without the probe fails OPEN —
-      // the model loader's own error still speaks.
-      const webglProblem =
-        typeof this.platform.webglProbe === "function"
-          ? this.platform.webglProbe()
-          : null;
-
-      if (webglProblem) {
-        this.failure = webglProblem;
+      this.state = "loading-model";
+      this.phase = "loading-runtime";
+      this.emit("onState", this.state);
+      const fail = (error) => {
+        if (attempt !== this.attempt) return;
+        this.failure = failureText(error);
+        this.disposeModel(this.loadingModel);
         this.state = "model-error";
         this.emit("onState", this.state);
-        return;
-      }
-
-      this.state = "loading-model";
-      this.emit("onState", this.state);
-
-      this.platform
-        .loadScript(this.platform.scriptSrc)
-        .then(() => {
-          if (attempt !== this.attempt) {
-            return;
-          }
-
-          const model = this.platform.createModel({
+      };
+      let model;
+      try {
+        model = this.platform.createModel(
+          {
             maxHands: 1,
             runtime: "tfjs",
             modelType: "lite",
             detectorModelUrl: this.platform.modelUrls.detectorModelUrl,
             landmarkModelUrl: this.platform.modelUrls.landmarkModelUrl,
-          });
-
-          return model.ready.then(() => {
-            if (attempt !== this.attempt) {
-              // The user stopped while the weights were loading: the
-              // model is unwanted — dispose it now, restart nothing.
-              this.disposeModel(model);
-              return;
-            }
-
-            this.model = model;
-
-            if (this.paused) {
-              // Ready while backgrounded: hold the loaded model (it is
-              // memory, not a device); resume() starts the loop.
-              return;
-            }
-
-            this.beginLoop(attempt);
-          });
-        })
-        .catch((error) => {
+          },
+          (phase) => {
+            if (attempt !== this.attempt || this.state !== "loading-model") return;
+            if (phase !== "loading-runtime" && phase !== "loading-model") return;
+            this.phase = phase;
+            this.emit("onState", this.state);
+          },
+        );
+        this.loadingModel = model;
+      } catch (error) {
+        fail(error);
+        return;
+      }
+      model.ready
+        .then(() => {
           if (attempt !== this.attempt) {
+            // The user stopped while the weights were loading: the
+            // model is unwanted — dispose it now, restart nothing.
+            this.disposeModel(model);
             return;
           }
 
-          this.failure = failureText(error);
-          this.state = "model-error";
-          this.emit("onState", this.state);
-        });
+          this.loadingModel = null;
+          this.model = model;
+
+          if (this.paused) {
+            // Ready while backgrounded: hold the loaded model (it is
+            // memory, not a device); resume() starts the loop.
+            return;
+          }
+
+          if (this.stream !== null) this.beginLoop(attempt);
+        })
+        .catch(fail);
     }
 
     beginLoop(attempt) {
-      this.cancelTick = this.platform.schedule(
-        () => this.onTick(attempt),
-        HANDPOSE_TICK_MS,
-      );
+      this.cancelTick = this.platform.schedule(() => this.onTick(attempt), HANDPOSE_TICK_MS);
       this.state = "running";
+      if (this.phase !== "ready") this.phase = "waiting-frame";
       this.emit("onState", this.state);
 
       if (!this.notifiedStart) {
@@ -414,12 +407,7 @@
     }
 
     onTick(attempt) {
-      if (
-        this.state !== "running" ||
-        this.paused ||
-        this.model === null ||
-        this.busy
-      ) {
+      if (this.state !== "running" || this.paused || this.model === null || this.busy) {
         return;
       }
 
@@ -429,38 +417,46 @@
         return;
       }
 
+      // Normalize against the submitted snapshot, even if the phone rotates
+      // or the camera resizes while the Worker is still inferring that frame.
+      const mediaSize = this.platform.mediaSize();
+      const frameSize = mediaSize ? { width: mediaSize.width, height: mediaSize.height } : null;
       this.busy = true;
+      const inferenceEpoch = this.inferenceEpoch;
+      if (this.phase !== "ready") {
+        this.phase = "warming-up";
+        this.emit("onState", this.state);
+      }
       const startedAt = this.platform.now();
 
       this.model
         .detect(media)
         .then((hands) => {
+          if (attempt !== this.attempt) return;
           this.busy = false;
-
-          if (attempt !== this.attempt || this.paused || this.state !== "running") {
+          if (inferenceEpoch !== this.inferenceEpoch || this.paused || this.state !== "running") {
             return; // a LATE result: dropped, never replayed
           }
 
           const endedAt = this.platform.now();
           this.rate.record(endedAt);
 
-          const sample = buildSample(
-            hands,
-            endedAt - startedAt,
-            this.rate.hz(endedAt),
-            this.platform.mediaSize(),
-          );
+          const sample = buildSample(hands, endedAt - startedAt, this.rate.hz(endedAt), frameSize);
 
           this.seq += 1;
           this.lastSample = sample;
+          const wasReady = this.phase === "ready";
+          this.phase = "ready";
           this.emit("onSend", sample, this.seq);
+          if (!wasReady) this.emit("onState", this.state);
         })
         .catch((error) => {
-          this.busy = false;
-
           if (attempt !== this.attempt) {
             return;
           }
+          this.busy = false;
+          if (inferenceEpoch !== this.inferenceEpoch || this.paused || this.state !== "running")
+            return;
 
           // An inference FAULT (distinct from "no hand"): stop the
           // loop, dispose the suspect model, keep the camera — the
@@ -480,10 +476,13 @@
       this.attempt += 1; // supersedes every in-flight stage
 
       this.stopLoop();
+      this.busy = false;
+      this.disposeModel(this.loadingModel);
       this.disposeModel(this.model);
       this.releaseCamera();
       this.state = "off";
       this.failure = null; // a stopped card carries no stale reason
+      this.phase = null;
 
       if (this.notifiedStart) {
         this.notifiedStart = false;
@@ -529,6 +528,7 @@
     // ------------------------------------------------------------
 
     stopLoop() {
+      this.inferenceEpoch += 1;
       if (this.cancelTick !== null) {
         this.cancelTick();
         this.cancelTick = null;
@@ -543,6 +543,9 @@
       if (model === this.model) {
         this.model = null;
       }
+      if (model === this.loadingModel) this.loadingModel = null;
+      if (this.disposedModels.has(model)) return;
+      this.disposedModels.add(model);
 
       try {
         model.dispose();

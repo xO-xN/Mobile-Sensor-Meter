@@ -16,7 +16,7 @@ This work declares `scoreServer.needsHttps: true` for its secure-context sensor 
 
 A numbered panel per device contains four sensor sections (four/two/one columns).
 The monitor follows App colors and language; Brutal uses square corners and hard
-shadows. Expand **Join devices** in the footer for the QR and performer address.
+shadows. Use the App performer QR button to share the current performer address.
 Phone pages share the fog/teal surfaces, system text and monospaced readings,
 with explicit capture buttons and permission notes. Keypoint disclosures retain
 open state and keyboard focus across shape/locale changes. All measurement rules,
@@ -63,7 +63,7 @@ npm ci --ignore-scripts
 npm start    # performer: http://<Host-LAN-IP>:6868/ · monitor: http://<Host-LAN-IP>:6869/
 ```
 
-Expand **Join devices** in the monitor footer and scan its QR with a phone, tap Enable on a sensor, tilt, shake — for the mic, speak (or hold a silent room and watch the REAL zeros); for the hand, show it to the camera.
+Display the App performer QR and scan it with a phone, tap Enable on a sensor, tilt, shake — for the mic, speak (or hold a silent room and watch the REAL zeros); for the hand, show it to the camera.
 
 ### The local handpose assets
 
@@ -86,7 +86,7 @@ public/vendor/handpose/PINNED.json              sources + sha256 provenance
 
 The point of this project is to prove sensor capture works in a **trusted secure context** — iOS Safari only exposes the motion sensors there, and getUserMedia (the microphone) requires a secure context everywhere. Two ways to run it that way; **neither ever installs a certificate on the phone**:
 
-**Option A — inside the PNDS App (recommended once #139–#141 are set up)**: prepare the App's trusted-HTTPS entry once (real DNS domain, public-CA certificate imported, entry switch on — see the App's `docs/zh-CN/reference/https.md`), then start this project from the App. The App's TLS gateway serves the performer page; the QR the monitor shows is the entry URL.
+**Option A — inside the PNDS App (recommended once #139–#141 are set up)**: prepare the App's trusted-HTTPS entry once (real DNS domain, public-CA certificate imported, entry switch on — see the App's `docs/zh-CN/reference/https.md`), then start this project from the App. The App's TLS gateway serves the performer page; the App QR uses that entry URL.
 
 **Option B — standalone, without the App**:
 
@@ -95,13 +95,13 @@ The point of this project is to prove sensor capture works in a **trusted secure
    - a **public-CA certificate** for it (full chain + key, e.g. via Let's Encrypt **DNS-01** — issuance needs no public server);
    - **local DNS** on the venue router (or any DNS the phones receive via DHCP) resolving the domain to this Mac's LAN address.
 2. Run a local TLS terminator in front of the performer port — e.g. Caddy: `sensor.example.org:8443 { tls /path/fullchain.pem /path/privkey.pem; reverse_proxy 127.0.0.1:6868 }`.
-3. Start the project with the entry URL so the QR, the copyable address and the page config all agree:
+3. Start the standalone project with the entry URL so the page connection config uses it:
 
    ```sh
    PNDS_HOST_IP=<LAN-IP> PNDS_PERFORMER_URL=https://sensor.example.org:8443/ npm start
    ```
 
-4. Phones scan the QR: secure context, no certificate warning, no profile to install.
+4. Open that HTTPS URL on phones: secure context, no certificate warning, no profile to install.
 
 Self-signed certificates and private CAs are **not** a success path — phones do not trust them. What this trial proves is the phone-side pipeline (permission, capture, processing, LAN Socket.IO); it does not by itself prove the App's gateway — that is the App-integration acceptance's business.
 
@@ -110,7 +110,7 @@ Self-signed certificates and private CAs are **not** a success path — phones d
 ```
 server.js       Entry: HTTP (both ports) + Socket.IO + health/shutdown
 lib/            Server core (config incl. performer-URL resolution, players
-                with durable claims, sensor hub, health, QR, lifecycle,
+                with durable claims, sensor hub, health, lifecycle,
                 handpose asset inventory)
 public/         Browser side (dual-role single page + sensor-logic,
                 mic-logic and handpose-logic — the capture/processing/
@@ -150,7 +150,7 @@ PNDS 仪表工程（Mobile Sensor Meter）：检验手机浏览器提供的传�
 
 与其余 Utilities 共用灰绿表面、系统字体和等宽读数。每台设备以大号编号定位，
 四个传感器区在宽屏并排，中屏两列、窄屏单列。Monitor 跟随 App 主题与语言，
-Brutal 同步方角硬阴影。底部展开「设备加入」查看二维码及完整演奏者地址。
+Brutal 同步方角硬阴影。使用 App 演奏端二维码按钮分享当前完整演奏者地址。
 手机页沿用相同语言，保留明确的启用 / 停止操作、权限提示及设备语言。
 关键点详情在状态或语言变化时保留展开与键盘位置；采集、资源释放、零值与缺失值
 语义、帧率平滑及 10 秒断开宽限规则保持原样。
@@ -196,7 +196,7 @@ npm ci --ignore-scripts
 npm start    # performer: http://<Host-LAN-IP>:6868/ · monitor: http://<Host-LAN-IP>:6869/
 ```
 
-用手机扫 monitor 上的二维码，点「启用」，倾斜、摇动；麦克风则对它说话（或对着安静的房间，看真实的零）；手部则把手伸到摄像头前。
+用手机扫 App 演奏端二维码，点「启用」，倾斜、摇动；麦克风则对它说话（或对着安静的房间，看真实的零）；手部则把手伸到摄像头前。
 
 ### 手部姿态的本地资产
 
@@ -219,7 +219,7 @@ public/vendor/handpose/PINNED.json              来源与 sha256 溯源
 
 本工程的意义在于证明**可信安全上下文**里的传感器链路——iOS Safari 只在那里开放运动传感器，而 getUserMedia（麦克风）在任何浏览器都要求安全上下文。两种方式，**都不要求手机安装任何证书**：
 
-**方式 A —— 在 PNDS App 内（#139–#141 就绪后推荐）**：一次性准备好 App 的可信 HTTPS 入口（真实 DNS 域名、导入公有 CA 证书、打开入口开关——见 App 的 `docs/zh-CN/reference/https.md`），从 App 启动本工程。App 的 TLS 网关服务 performer 页面，monitor 上的二维码即入口 URL。
+**方式 A —— 在 PNDS App 内（#139–#141 就绪后推荐）**：一次性准备好 App 的可信 HTTPS 入口（真实 DNS 域名、导入公有 CA 证书、打开入口开关——见 App 的 `docs/zh-CN/reference/https.md`），从 App 启动本工程。App 的 TLS 网关服务 performer 页面，App 二维码使用该入口 URL。
 
 **方式 B —— 独立运行，不经 App**：
 
@@ -228,7 +228,7 @@ public/vendor/handpose/PINNED.json              来源与 sha256 溯源
    - 该域名的**公有 CA 证书**（完整链 + 私钥；Let's Encrypt **DNS-01** 签发无需公网服务器）；
    - 场地路由器（或手机经 DHCP 获得的任一 DNS）的**本地解析**把域名指到这台 Mac 的局域网地址。
 2. 在 performer 端口前放一个本地 TLS 终结——例如 Caddy：`sensor.example.org:8443 { tls /path/fullchain.pem /path/privkey.pem; reverse_proxy 127.0.0.1:6868 }`。
-3. 以入口 URL 启动，让二维码、可复制地址与页面配置一致：
+3. 独立启动时注入入口 URL，让页面配置使用它：
 
    ```sh
    PNDS_HOST_IP=<LAN-IP> PNDS_PERFORMER_URL=https://sensor.example.org:8443/ npm start
@@ -243,7 +243,7 @@ public/vendor/handpose/PINNED.json              来源与 sha256 溯源
 ```
 server.js       入口：双端口 HTTP + Socket.IO + health/关停
 lib/            服务端核心（含 performer URL 解析的 config、持久 claim 的
-                players、sensor hub、health、QR、lifecycle、handpose 资产清单）
+                players、sensor hub、health、lifecycle、handpose 资产清单）
 public/         浏览器侧（双角色单页 + sensor-logic / mic-logic /
                 handpose-logic——测试驱动的采集/处理/控制器代码）
 public/vendor/  固定的本地 handpose 资产（ml5 + 两份模型）
@@ -268,3 +268,7 @@ MIT —— 见 [LICENSE](LICENSE)。
 
 
 Runtime requirements: PNDS App v1.6.2 or a Host supporting the exact shared libraries in manifest.json. The project bundle carries references and project assets; standalone development can still use npm ci --ignore-scripts. See docs/shared-libraries.md in the source repository.
+
+## App performer QR migration
+
+This version removes the project QR interface and `/qr` endpoint. In PNDS App with built-in performer QR, use the bottom bar in performance mode or the Performers button in creation mode to open this project’s performer page. Standalone browsers and older Apps retain the project pages without an in-page QR entry.

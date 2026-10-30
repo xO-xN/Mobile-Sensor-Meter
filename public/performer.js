@@ -26,6 +26,7 @@ const P = window.PNDS;
 const S = window.SensorLogic;
 const ML = window.MicLogic;
 const HPL = window.HandPoseLogic;
+const HPW = window.HandPoseWorkerClient;
 const R = window.PNDS_RENDER;
 
 // No App bridge on a phone: the page picks its locale from the device
@@ -58,12 +59,7 @@ app.innerHTML =
   "</div>";
 
 function sensorCardHtml(sensor) {
-  const title =
-    sensor === "tilt"
-      ? T.tiltTitle
-      : sensor === "motion"
-        ? T.motionTitle
-        : T.micTitle;
+  const title = sensor === "tilt" ? T.tiltTitle : sensor === "motion" ? T.motionTitle : T.micTitle;
   return (
     '<div class="card" id="card-' +
     sensor +
@@ -108,7 +104,7 @@ function handposeCardHtml() {
     '<video id="hp-video" playsinline muted autoplay></video>' +
     '<canvas id="hp-canvas"></canvas>' +
     "</div>" +
-    '<p class="sensor-note" role="status" id="note-handpose"></p>' +
+    '<p class="sensor-note" role="status" aria-live="polite" aria-atomic="true" id="note-handpose"></p>' +
     '<div id="values-handpose"></div>' +
     "</div>"
   );
@@ -145,9 +141,7 @@ socket.on(P.events.joined, (data) => {
   localStorage.setItem(P.tokenKey, data.token);
   deviceId = data.id;
   deviceEl.textContent = T.device + data.id + (data.recovered ? " ✓" : "");
-  document.getElementById("device-number").textContent = String(
-    data.id,
-  ).padStart(2, "0");
+  document.getElementById("device-number").textContent = String(data.id).padStart(2, "0");
   setConnection(T.connected);
 });
 
@@ -285,8 +279,7 @@ const mic = new ML.MicController(
     // A non-secure context hides navigator.mediaDevices entirely — the
     // controller reports "unsupported" and the note says why (HTTPS).
     getUserMedia:
-      navigator.mediaDevices &&
-      typeof navigator.mediaDevices.getUserMedia === "function"
+      navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function"
         ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
         : null,
     releaseStream: stopStreamTracks,
@@ -338,101 +331,26 @@ function isCapturing(state) {
 
 // ------------------------------------------------------------ handpose (#144)
 
-// The lazy loader for the SAME-ORIGIN ml5 bundle: nothing of ml5 costs
-// a byte until the user actually enables the hand card, and what loads
-// comes from this server's /__pnds/shared/ — never a CDN. A bundle that has
-// already loaded resolves immediately: a re-enable (e.g. after a model
-// error) must not re-execute the script.
-const loadedVendorScripts = new Set();
-
-function loadVendorScript(src) {
-  if (loadedVendorScripts.has(src)) {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = src;
-    script.onload = () => {
-      loadedVendorScripts.add(src);
-      resolve();
-    };
-    script.onerror = () => reject(new Error("failed to load " + src));
-    document.head.appendChild(script);
+// The model runtime and every inference live in a dedicated Worker. Only
+// camera preview/frame copying and processed numeric results touch this page.
+// Unsupported or failed workers are visible errors: never run ml5 here.
+function createHandposeModel(config, onProgress) {
+  if (!HPW || !HPW.supported()) throw new Error(T.handposeWorkerUnsupported);
+  return HPW.createModel(config, {
+    onProgress,
+    scriptSrc: "/__pnds/shared/ml5.js",
+    workerUrl: "/handpose-worker.js",
   });
-}
-
-// ml5's wrapper exposes no dispose of its own; the underlying
-// hand-pose-detection detector has one — release the GPU memory
-// through it when present.
-//
-// TWO platform facts meet here, both found on a real phone:
-// - ml5 1.4.0, with no p5 on the page, replaces every factory with a
-//   promise-returning one — handPose(config) resolves to the instance
-//   instead of returning it. This wrapper awaits both shapes.
-// - The backend is pinned to WebGL (CPU fallback) BEFORE the weights
-//   load: tf.ready() prefers WebGPU where present, and this model has
-//   no honest GPU path for video on tfjs 4.22 — WebGPU uploads video
-//   elements as blank frames (zero hands), WebGL's video upload poisons
-//   the GL state and every later inference returns NaN (a constant
-//   phantom hand, since NaN scores bypass the 0.5 threshold). The
-//   WebGL pin keeps the GPU speed for the canvas-frame input that
-//   hpFrameCopy() feeds — pixel-verified honest on every engine.
-function wrapMl5HandPose(config) {
-  let real = null;
-
-  return {
-    ready: (async () => {
-      const tf = window.ml5 && window.ml5.tf;
-
-      if (tf && typeof tf.setBackend === "function") {
-        try {
-          if ((await tf.setBackend("webgl")) === false) {
-            throw new Error("webgl backend unavailable");
-          }
-
-          await tf.ready();
-        } catch {
-          await tf.setBackend("cpu").catch(() => {});
-          await tf.ready();
-        }
-      }
-
-      const handed = window.ml5.handPose(config);
-      const thenable = (value) =>
-        Boolean(value) && typeof value.then === "function";
-      const instance = thenable(handed) ? await handed : handed;
-
-      if (!instance || typeof instance.detect !== "function") {
-        throw new Error("ml5 handPose() resolved without a usable instance");
-      }
-
-      real = instance;
-      return instance;
-    })(),
-    detect: (media) => real.detect(media),
-    dispose() {
-      if (real && real.model && typeof real.model.dispose === "function") {
-        real.model.dispose();
-      }
-    },
-  };
 }
 
 function hpVideo() {
   return document.getElementById("hp-video");
 }
 
-// The frame the model sees: an OFFSCREEN 2d-canvas copy of the video,
-// refreshed per tick. tfjs 4.22's GPU backends must NEVER touch the
-// video element — WebGL's texImage2D from a MediaStream video corrupts
-// the GL state and every inference afterwards returns NaN (NaN scores
-// then bypass the 0.5 detector threshold, so the card reads a constant
-// phantom hand), and WebGPU uploads videos as blank frames. A 2d
-// canvas copy reads back honestly on every engine (pixel-verified),
-// costs ~1–2 ms at 640×480, and the preview keeps its own video
-// element untouched. No frames yet → null (the controller skips the
-// tick; "no frames" is not "no hand").
+// Copy each camera frame to a 2D canvas before transferring a snapshot
+// to the Worker. The pinned TFJS GPU backends must not upload the live
+// video element: their video path produced blank/NaN results on devices.
+// No frame yet means skip this tick; it is not a zero-hand inference.
 const hpFrame =
   typeof document !== "undefined" && document.createElement
     ? document.createElement("canvas")
@@ -467,8 +385,7 @@ const handpose = new HPL.HandPoseController(
   {
     now: () => performance.now(),
     getUserMedia:
-      navigator.mediaDevices &&
-      typeof navigator.mediaDevices.getUserMedia === "function"
+      navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function"
         ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
         : null,
     releaseStream: stopStreamTracks,
@@ -487,37 +404,7 @@ const handpose = new HPL.HandPoseController(
         ? { width: video.videoWidth, height: video.videoHeight }
         : null;
     },
-    loadScript: loadVendorScript,
-    // The cheap GPU check the controller runs before paying for the
-    // ml5 bundle: a page without WebGL (iOS Low Power Mode, restricted
-    // webviews) cannot run the model at all. Returns null when fine,
-    // the user-facing reason when not. Unprobeable → null (fail open:
-    // the model loader's own error still speaks).
-    webglProbe() {
-      const canvas = document.createElement("canvas");
-
-      if (typeof canvas.getContext !== "function") {
-        return null;
-      }
-
-      const gl = canvas.getContext("webgl2") || canvas.getContext("webgl");
-
-      if (!gl) {
-        return T.webglUnavailable;
-      }
-
-      if (typeof gl.getExtension === "function") {
-        const lose = gl.getExtension("WEBGL_lose_context");
-
-        if (lose && typeof lose.loseContext === "function") {
-          lose.loseContext(); // the probe must not hold a context slot
-        }
-      }
-
-      return null;
-    },
-    createModel: wrapMl5HandPose,
-    scriptSrc: "/__pnds/shared/ml5.js",
+    createModel: createHandposeModel,
     modelUrls: {
       detectorModelUrl: "/vendor/handpose/detector/model.json",
       landmarkModelUrl: "/vendor/handpose/landmark/model.json",
@@ -555,10 +442,7 @@ const handpose = new HPL.HandPoseController(
 
       lastShown.handpose = { sample, seq };
       drawHandposeOverlay(sample);
-      document.getElementById("values-handpose").innerHTML = R.handposeRows(
-        sample,
-        T,
-      );
+      document.getElementById("values-handpose").innerHTML = R.handposeRows(sample, T);
     },
   },
 );
@@ -572,11 +456,7 @@ els.handpose.button.addEventListener("click", () => {
 });
 
 function isHandposeActive(state) {
-  return (
-    state === "camera-starting" ||
-    state === "loading-model" ||
-    state === "running"
-  );
+  return state === "camera-starting" || state === "loading-model" || state === "running";
 }
 
 // The overlay mirrors x to match the CSS-mirrored selfie preview — the
@@ -608,21 +488,13 @@ function drawHandposeOverlay(sample) {
 
   context.clearRect(0, 0, width, height);
 
-  if (
-    sample.hands === 0 ||
-    !Array.isArray(sample.keypoints) ||
-    sample.keypoints.length === 0
-  ) {
+  if (sample.hands === 0 || !Array.isArray(sample.keypoints) || sample.keypoints.length === 0) {
     return; // no hand: the cleared overlay IS the no-hand display
   }
 
   const px = (point) => [(1 - point.x) * width, point.y * height];
   const drawable = (point) =>
-    point &&
-    point.x !== null &&
-    point.y !== null &&
-    point.x !== undefined &&
-    point.y !== undefined;
+    point && point.x !== null && point.y !== null && point.x !== undefined && point.y !== undefined;
 
   context.strokeStyle = "#86efac";
   context.lineWidth = 2;
@@ -676,6 +548,8 @@ function renderHandposeState() {
   const state = handpose.stateOf();
   const note = els.handpose.note;
   const button = els.handpose.button;
+  const phase = handpose.phaseOf();
+  note.setAttribute("data-phase", phase || state);
 
   button.classList.toggle("stop", isHandposeActive(state));
   button.textContent = isHandposeActive(state) ? T.stop : T.enable;
@@ -702,10 +576,10 @@ function renderHandposeState() {
       note.classList.add("bad");
       break;
     case "loading-model":
-      note.textContent = T.modelLoading;
+      note.textContent = phase === "loading-runtime" ? T.runtimeLoading : T.modelLoading;
       break;
     case "model-error":
-      // The REAL reason first (WebGL probe, script fetch, tfjs init).
+      // The worker, library or model initialization reason comes first.
       // The fetch:handpose advice fits exactly one failure — an assets
       // inventory that says files are missing — and that hint lives on
       // the stopped card, not here.
@@ -721,7 +595,12 @@ function renderHandposeState() {
       note.classList.add("bad");
       break;
     case "running":
-      note.textContent = "";
+      note.textContent =
+        phase === "ready"
+          ? T.handposeReady
+          : phase === "warming-up"
+            ? T.handposeWarmingUp
+            : T.handposeWaitingFrame;
       break;
     default:
       // Stopped: the frozen last values stay readable; the note says

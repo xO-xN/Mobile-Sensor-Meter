@@ -32,9 +32,7 @@
             '/__pnds/shared/socket.io.js"\x3E\x3C/script\x3E',
         );
       } else {
-        document.write(
-          '\x3Cscript src="/__pnds/shared/socket.io.js"\x3E\x3C/script\x3E',
-        );
+        document.write('\x3Cscript src="/__pnds/shared/socket.io.js"\x3E\x3C/script\x3E');
       }
     </script>
   </head>
@@ -53,11 +51,12 @@
         // sensor-logic.js / mic-logic.js / handpose-logic.js are the
         // performer page's capture layers (motion sensors, microphone,
         // handpose camera+model); the monitor never runs them. The ml5
-        // bundle itself stays UNLOADED until handpose is enabled (the
-        // page lazy-loads it from /vendor/, same origin).
+        // bundle stays in a dedicated Worker, loaded only when handpose
+        // is enabled; the page loads only the lightweight Worker client.
         document.write('\x3Cscript src="sensor-logic.js"\x3E\x3C/script\x3E');
         document.write('\x3Cscript src="mic-logic.js"\x3E\x3C/script\x3E');
         document.write('\x3Cscript src="handpose-logic.js"\x3E\x3C/script\x3E');
+        document.write('\x3Cscript src="handpose-worker-client.js"\x3E\x3C/script\x3E');
         document.write('\x3Cscript src="locale.js"\x3E\x3C/script\x3E');
         document.write('\x3Cscript src="performer.js"\x3E\x3C/script\x3E');
       }

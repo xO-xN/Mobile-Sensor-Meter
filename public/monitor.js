@@ -57,7 +57,7 @@ app.innerHTML = `
     <div class="devices" id="devices"></div>
     <div class="empty" id="empty-panel"><span class="empty-mark" aria-hidden="true">+</span><h3 id="empty-title"></h3><p class="hint" id="empty"></p></div>
   </div>
-  <footer><p class="hint" id="footer-hint"></p><details class="remote"><summary><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4.5" y="1.5" width="7" height="13" rx="1.5" stroke="currentColor"/><path d="M7 12h2" stroke="currentColor"/></svg><span id="join-label"></span></summary><div class="qr-row"><img src="/qr" id="qr-img" alt=""/><span class="sub" id="scan-label"></span><span class="address" id="address-label"></span></div></details></footer>`;
+  <footer><p class="hint" id="footer-hint"></p></footer>`;
 
 const devicesEl = document.getElementById("devices");
 const emptyEl = document.getElementById("empty");
@@ -123,15 +123,10 @@ function render() {
     "devices-label": T.devices,
     "readings-label": T.readings,
     "empty-title": T.emptyTitle,
-    "join-label": T.join,
     "footer-hint": T.footerHint,
   }))
     document.getElementById(id).textContent = value;
   document.getElementById("capacity").textContent = " / " + P.maxClients;
-  document.getElementById("scan-label").textContent = T.scan;
-  document.getElementById("qr-img").setAttribute("alt", T.qrAlt);
-  document.getElementById("address-label").textContent =
-    T.address + ": " + P.performerUrl;
 
   visibleIds = R.visibleDeviceIds(state.sensors.devices, state.sensors.at);
 

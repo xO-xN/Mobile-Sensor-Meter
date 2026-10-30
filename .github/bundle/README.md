@@ -19,7 +19,7 @@ A PNDS utility that meters a phone's sensors live: each joined phone captures it
    This tool explicitly declares `needsHttps: true` because of its sensor
    APIs; ordinary touch and QR projects use HTTP by default. The App chooses
    the address shared by the QR and page connection configuration.
-3. Expand **Join devices** at the bottom of the monitor and scan the QR code on
+3. Click the App performer QR button and scan the code on
    each phone; keep the page open.
 4. On the phone, enable the cards you need — tilt & motion, microphone, hand
    pose. Every permission is requested inside your tap; a denied or late
@@ -52,3 +52,7 @@ language from the device.
 
 
 Runtime requirements: PNDS App v1.6.2 or a Host supporting the exact shared libraries in manifest.json. The project bundle carries references and project assets; standalone development can still use npm ci --ignore-scripts. See docs/shared-libraries.md in the source repository.
+
+## App performer QR migration
+
+This version removes the project QR interface and `/qr` endpoint. In PNDS App with built-in performer QR, use the bottom bar in performance mode or the Performers button in creation mode to open this project’s performer page. Standalone browsers and older Apps retain the project pages without an in-page QR entry.

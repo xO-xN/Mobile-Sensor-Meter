@@ -1,5 +1,5 @@
 // The browser-side handpose logic (public/handpose-logic.js) driven
-// through API stand-ins: fake cameras, a fake lazy script loader, a
+// through API stand-ins: fake cameras, a
 // fake model factory and a fake clock. These tests prove the exact
 // rules the phone enforces — the three-stage pipeline with distinct
 // failures (camera / model / inference), "no hand" as a RESULT, the
@@ -23,12 +23,10 @@ test("buildSample normalizes pixel keypoints to [0,1] and caps at 21", () => {
     keypoints.push({ name: "p" + i, x: i * 32, y: 480 - i * 16 });
   }
 
-  const sample = HPL.buildSample(
-    [{ confidence: 0.92, keypoints }],
-    23.5,
-    9.5,
-    { width: 640, height: 480 },
-  );
+  const sample = HPL.buildSample([{ confidence: 0.92, keypoints }], 23.5, 9.5, {
+    width: 640,
+    height: 480,
+  });
 
   assert.equal(sample.hands, 1);
   assert.equal(sample.confidence, 0.92);
@@ -62,12 +60,10 @@ test("without a frame size the coordinates are missing, never guessed", () => {
 });
 
 test("non-finite values fold to missing; a non-array hands result reads as zero hands", () => {
-  const sample = HPL.buildSample(
-    [{ confidence: NaN, keypoints: [{ x: NaN, y: 64 }] }],
-    10,
-    9,
-    { width: 640, height: 480 },
-  );
+  const sample = HPL.buildSample([{ confidence: NaN, keypoints: [{ x: NaN, y: 64 }] }], 10, 9, {
+    width: 640,
+    height: 480,
+  });
 
   assert.equal(sample.confidence, null);
   assert.equal(sample.keypoints[0].x, null);
@@ -113,8 +109,8 @@ function fakeHands(keypointCount = 21) {
   return [{ confidence: 0.9, keypoints }];
 }
 
-// The fake platform: camera responders queue up, the lazy script and
-// the model factory are driven by the test, the inference tick timer
+// The fake platform: camera responders queue up, the worker-model
+// factory is driven by the test, the inference tick timer
 // is collected and pumped, and every teardown is recorded.
 function makePlatform(options = {}) {
   const state = {
@@ -122,8 +118,7 @@ function makePlatform(options = {}) {
     releasedStreams: [],
     attached: 0,
     detached: 0,
-    scripts: [],
-    scriptResults: [], // per-load: "ok" | "error"
+    modelResults: [], // worker model initialization gates
     modelConfigs: [],
     disposedModels: 0,
     detects: 0,
@@ -134,8 +129,6 @@ function makePlatform(options = {}) {
     clock: 0,
     mediaSize: options.mediaSize === undefined ? { width: 640, height: 480 } : options.mediaSize,
   };
-
-  let scriptIndex = -1;
 
   const platform = {
     state,
@@ -169,24 +162,17 @@ function makePlatform(options = {}) {
     },
     media: () => ({ readyState: "live" }),
     mediaSize: () => state.mediaSize,
-    loadScript: (src) => {
-      scriptIndex += 1;
-      const index = scriptIndex;
-      state.scripts.push(src);
-
-      return new Promise((resolve, reject) => {
-        state.scriptResults.push({
-          resolve: () => resolve(),
-          reject: () => reject(new Error("script failed: " + src)),
-          index,
-        });
-      });
-    },
-    createModel: (config) => {
+    createModel: (config, onProgress) => {
       state.modelConfigs.push(config);
 
       return {
-        ready: Promise.resolve(),
+        ready: new Promise((resolve, reject) => {
+          state.modelResults.push({
+            resolve,
+            reject: () => reject(new Error("Worker runtime initialization failed")),
+            progress: onProgress,
+          });
+        }),
         detect: () => {
           state.detects += 1;
 
@@ -203,10 +189,6 @@ function makePlatform(options = {}) {
         },
       };
     },
-    scriptSrc: "/__pnds/shared/ml5.js",
-    ...(options.webglProbe === undefined
-      ? {}
-      : { webglProbe: () => options.webglProbe }),
     modelUrls: {
       detectorModelUrl: "/vendor/handpose/detector/model.json",
       landmarkModelUrl: "/vendor/handpose/landmark/model.json",
@@ -237,13 +219,12 @@ async function flush(times = 4) {
   }
 }
 
-// Drives the camera+script+model stages to "running" using the happy
-// path, so behavior tests can start from a live pipeline. Resolves the
-// LATEST pending script load (a restarted pipeline appends a new one).
+// Drive camera and Worker-model initialization to running. The gate
+// exercises the same ready promise returned by the phone adapter.
 async function startRunning(controller, platform) {
   controller.start();
   await flush();
-  const pending = platform.state.scriptResults.filter((r) => !r.done);
+  const pending = platform.state.modelResults.filter((r) => !r.done);
 
   for (const result of pending) {
     result.resolve();
@@ -269,10 +250,12 @@ test("the happy path: camera → local model → running, with the pinned local 
 
   assert.equal(platform.state.attached, 1); // the preview is live
   assert.equal(controller.stateOf(), "loading-model");
-  assert.equal(platform.state.scripts.length, 1); // the lazy ml5 load
-  assert.equal(platform.state.scripts[0], "/__pnds/shared/ml5.js");
+  assert.equal(platform.state.modelConfigs.length, 1); // the Worker was created
+  assert.equal(controller.phaseOf(), "loading-runtime");
+  platform.state.modelResults[0].progress("loading-model");
+  assert.equal(controller.phaseOf(), "loading-model");
 
-  await platform.state.scriptResults[0].resolve();
+  await platform.state.modelResults[0].resolve();
   await flush();
 
   assert.equal(controller.stateOf(), "running");
@@ -322,7 +305,7 @@ test("a denied camera is its own state — recoverable by the next Enable", asyn
   await flush();
 
   assert.equal(controller.stateOf(), "camera-denied");
-  assert.equal(platform.state.scripts.length, 0);
+  assert.equal(platform.state.modelConfigs.length, 0);
 
   // Recoverable: the next tap starts over (this platform still denies,
   // but the state machine moved through camera-starting again).
@@ -330,7 +313,7 @@ test("a denied camera is its own state — recoverable by the next Enable", asyn
   assert.equal(controller.stateOf(), "camera-starting");
 });
 
-test("a failed script load (missing vendor assets) is model-error; the CAMERA KEEPS RUNNING", async () => {
+test("a failed Worker initialization is model-error; the CAMERA KEEPS RUNNING", async () => {
   const platform = makePlatform();
   const controller = new HPL.HandPoseController(platform, {});
 
@@ -340,7 +323,7 @@ test("a failed script load (missing vendor assets) is model-error; the CAMERA KE
   assert.equal(controller.stateOf(), "loading-model");
   assert.equal(platform.state.attached, 1);
 
-  await platform.state.scriptResults[0].reject();
+  await platform.state.modelResults[0].reject();
   await flush();
 
   assert.equal(controller.stateOf(), "model-error");
@@ -350,7 +333,7 @@ test("a failed script load (missing vendor assets) is model-error; the CAMERA KE
 
   // The card shows the REAL reason — the script that failed to load,
   // not a blanket "run the fetch script" (the assets may all exist).
-  assert.match(controller.failureDetail(), /__pnds\/shared\/ml5\.js/);
+  assert.match(controller.failureDetail(), /Worker runtime initialization failed/);
 
   // Recoverable: the next Enable starts the whole pipeline over.
   controller.start();
@@ -370,35 +353,24 @@ test("a failed model init (weights missing / WebGL unavailable) is model-error t
 
   controller.start();
   await flush();
-  await platform.state.scriptResults[0].resolve();
-  await flush();
-
   assert.equal(controller.stateOf(), "model-error");
   // The underlying tfjs/loader message survives verbatim.
   assert.equal(controller.failureDetail(), "404 model.json");
 });
 
-test("a WebGL-less page fails FAST: no script download, no model — and the camera keeps proving", async () => {
-  const platform = makePlatform({ webglProbe: "WebGL unavailable on this page" });
+test("a Worker constructor failure is model-error and leaves the preview alive", async () => {
+  const platform = makePlatform();
+  platform.createModel = () => {
+    throw new Error("Worker unavailable on this page");
+  };
   const controller = new HPL.HandPoseController(platform, {});
-
   controller.start();
   await flush();
-
   assert.equal(controller.stateOf(), "model-error");
-  assert.equal(controller.failureDetail(), "WebGL unavailable on this page");
-  assert.equal(platform.state.scripts.length, 0); // the 4.5 MB stays unsent
-  assert.equal(platform.state.modelConfigs.length, 0);
-  assert.equal(platform.state.attached, 1); // the preview is still live
+  assert.equal(controller.failureDetail(), "Worker unavailable on this page");
+  assert.equal(platform.state.attached, 1);
   assert.equal(platform.state.detached, 0);
-
-  // A platform without the probe at all fails OPEN (the model loader's
-  // own error still speaks): the happy path is untouched.
-  const openPlatform = makePlatform();
-  const openController = new HPL.HandPoseController(openPlatform, {});
-  openController.start();
-  await flush();
-  assert.equal(openController.stateOf(), "loading-model");
+  assert.equal(platform.state.timers.size, 0);
 });
 
 test("stop releases everything: loop, model, camera — and emits the server stop", async () => {
@@ -477,8 +449,6 @@ test("a LATE model-ready after stop disposes the model it finished loading", asy
   });
 
   controller.start();
-  await flush();
-  await platform.state.scriptResults[0].resolve();
   await flush();
   assert.equal(platform.state.modelConfigs.length, 1);
 
@@ -640,7 +610,7 @@ test("re-enabling after a model error releases the OLD camera before the new one
 
   controller.start();
   await flush();
-  await platform.state.scriptResults[0].reject(); // → model-error, camera kept
+  await platform.state.modelResults[0].reject(); // → model-error, camera kept
   await flush();
   assert.equal(controller.stateOf(), "model-error");
 

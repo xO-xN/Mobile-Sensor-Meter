@@ -165,30 +165,25 @@ function loadPerformerPage(options = {}) {
     micHarness.gumCalls.push(constraints);
 
     if (options.gum === "deny") {
-      return Promise.reject(
-        Object.assign(new Error("denied"), { name: "NotAllowedError" }),
-      );
+      return Promise.reject(Object.assign(new Error("denied"), { name: "NotAllowedError" }));
     }
 
     return Promise.resolve(fakeStream());
   }
 
-  // The handpose stand-ins: lazy script loads the page can be driven
-  // through (tests fire a script's onload/onerror), a fake ml5 whose
-  // detect resolves what the test scripted, and counters for every
-  // teardown the spec (#144) pins.
+  // The page talks only to the worker client. These controllable requests
+  // test its wiring; actual Worker isolation and ml5 execution are covered
+  // by handpose-worker-client.test.js and the browser isolation harness.
   const scripts = [];
   const hpHarness = {
-    scriptConfigs: [],
+    modelConfigs: [],
+    models: [],
+    requests: [],
     disposedModels: 0,
     detects: 0,
     mediaInputs: [],
     handsResult: [],
     detectError: null,
-    // Present when options.tfFake: records the backend calls so tests
-    // can prove the pin happens BEFORE the model is constructed
-    // ("set:webgl" → "ready" → "construct").
-    backendCalls: options.tfFake ? [] : null,
   };
 
   const sandbox = {
@@ -219,69 +214,64 @@ function loadPerformerPage(options = {}) {
             Promise.resolve({
               json: () => Promise.resolve({ ok: options.assetsOk }),
             }),
-    // The fake ml5: handPose(config) records the config; detect()
-    // resolves the scripted hands (or rejects with detectError); the
-    // underlying detector's dispose() is counted.
-    //
-    // Shape matters: real ml5 1.4.0 with NO p5 on the page replaces
-    // every factory with a promise-returning one — handPose(config)
-    // resolves to the instance (the phone failure). options.ml5Returns
-    // = "instance" exercises the plain-constructor shape instead.
-    ml5: {
-      // options.tfFake stands in for ml5's exposed tfjs namespace, so a
-      // test can pin the ORDER: backend selection before construction.
-      tf: options.tfFake
-        ? {
-            setBackend: async (name) => {
-              hpHarness.backendCalls.push("set:" + name);
-              return true;
-            },
-            ready: async () => {
-              hpHarness.backendCalls.push("ready");
-            },
-          }
-        : undefined,
-      handPose(config) {
-        hpHarness.scriptConfigs.push(config);
-        const instance = {
-          ready: Promise.resolve(),
-          model: {
-            dispose() {
-              hpHarness.disposedModels += 1;
-            },
-          },
+    HandPoseWorkerClient: {
+      supported: () => options.workerSupported !== false,
+      createModel(config, workerOptions) {
+        hpHarness.modelConfigs.push(config);
+        let disposed = false;
+        let resolveReady;
+        let rejectReady;
+        const ready = new Promise((resolve, reject) => {
+          resolveReady = resolve;
+          rejectReady = reject;
+        });
+        const pendingDetects = new Set();
+        const model = {
+          ready,
           detect(media) {
             hpHarness.detects += 1;
             hpHarness.mediaInputs.push(media);
-            void media;
-
             if (hpHarness.detectError) {
               return Promise.reject(hpHarness.detectError);
             }
-
+            if (options.detectPending) {
+              return new Promise((resolve, reject) => {
+                const request = {
+                  resolve(hands = hpHarness.handsResult) {
+                    pendingDetects.delete(request);
+                    resolve(hands);
+                  },
+                  reject(error) {
+                    pendingDetects.delete(request);
+                    reject(error);
+                  },
+                };
+                pendingDetects.add(request);
+                hpHarness.requests.push(request);
+              });
+            }
             return Promise.resolve(hpHarness.handsResult);
           },
+          dispose() {
+            if (disposed) return;
+            disposed = true;
+            hpHarness.disposedModels += 1;
+            const error = new Error("Hand recognition worker stopped");
+            rejectReady(error);
+            for (const request of [...pendingDetects]) request.reject(error);
+          },
         };
-
-        if (options.modelReadyError) {
-          return Promise.reject(new Error(options.modelReadyError));
+        hpHarness.models.push({
+          options: workerOptions,
+          resolve: resolveReady,
+          reject: rejectReady,
+          progress: (phase) => workerOptions.onProgress(phase),
+        });
+        if (!options.modelPending) {
+          if (options.modelReadyError) rejectReady(new Error(options.modelReadyError));
+          else resolveReady();
         }
-
-        if (options.ml5Returns === "instance") {
-          return instance; // the plain-constructor shape
-        }
-
-        if (options.ml5Returns === "garbage") {
-          return 42; // neither an instance nor a promise
-        }
-
-        if (hpHarness.backendCalls) {
-          hpHarness.backendCalls.push("construct");
-        }
-
-        // The REAL 1.4.0 shape with no p5 on the page: a promise that
-        // resolves to the instance once the local weights are in.
-        return Promise.resolve(instance);
+        return model;
       },
     },
     localStorage: {
@@ -342,14 +332,7 @@ function loadPerformerPage(options = {}) {
               return { drawImage() {} };
             }
 
-            // The WebGL probe's stand-in: options.webgl === false reads
-            // as a page with no GPU context (Low Power Mode & friends);
-            // otherwise a healthy context that can be released.
-            return options.webgl === false
-              ? null
-              : {
-                  getExtension: () => ({ loseContext() {} }),
-                };
+            return null;
           };
         }
         return element;
@@ -389,13 +372,9 @@ function loadPerformerPage(options = {}) {
   vm.runInContext("var window = this; var self = this;", sandbox);
 
   const run = (file) =>
-    vm.runInContext(
-      fs.readFileSync(path.join(PUBLIC_DIR, file), "utf8"),
-      sandbox,
-      {
-        filename: file,
-      },
-    );
+    vm.runInContext(fs.readFileSync(path.join(PUBLIC_DIR, file), "utf8"), sandbox, {
+      filename: file,
+    });
 
   run("shared.js");
   run("locale.js");
@@ -433,9 +412,7 @@ function loadPerformerPage(options = {}) {
     device: elements.get("device-label"),
     mic: micHarness,
     hp: hpHarness,
-    // The pending lazy-loaded vendor scripts (the page appends one per
-    // handpose model load); a test fires onload/onerror to drive the
-    // load stage.
+    // Kept to catch accidental runtime-script injection into the page.
     scripts,
     // Fires every live interval once (the mic's 16 ms tick, the
     // handpose inference tick and the heartbeat alike — tests filter
@@ -534,10 +511,7 @@ test("stop ends the capture: the server is told and late events go nowhere", () 
   assert.equal(stop[1].sensor, "tilt");
 
   page.fireSensorEvent("deviceorientation", { alpha: 9, beta: 9, gamma: 9 });
-  assert.equal(
-    page.emitted.filter(([e]) => e === "pnds:sensor:sample").length,
-    0,
-  );
+  assert.equal(page.emitted.filter(([e]) => e === "pnds:sensor:sample").length, 0);
 });
 
 test("an unsupported sensor reports the fact to the server and the UI", () => {
@@ -566,20 +540,14 @@ test("hiding the page pauses capture and tells the server; returning resumes", (
 
   assert.ok(page.emitted.some(([e]) => e === "pnds:sensor:pause"));
   page.fireSensorEvent("deviceorientation", { alpha: 5, beta: 5, gamma: 5 });
-  assert.equal(
-    page.emitted.filter(([e]) => e === "pnds:sensor:sample").length,
-    0,
-  );
+  assert.equal(page.emitted.filter(([e]) => e === "pnds:sensor:sample").length, 0);
   assert.match(page.note("tilt").textContent, /Paused/);
 
   page.sandbox.document.visibilityState = "visible";
   page.fireDocument("visibilitychange");
   assert.ok(page.emitted.some(([e]) => e === "pnds:sensor:resume"));
   page.fireSensorEvent("deviceorientation", { alpha: 6, beta: 6, gamma: 6 });
-  assert.equal(
-    page.emitted.filter(([e]) => e === "pnds:sensor:sample").length,
-    1,
-  );
+  assert.equal(page.emitted.filter(([e]) => e === "pnds:sensor:sample").length, 1);
 });
 
 test("heartbeats carry no sensor values", () => {
@@ -594,10 +562,7 @@ test("heartbeats carry no sensor values", () => {
   // timers. Here: no sample or sensor event can ever be emitted
   // without a capture, heartbeats or not.
   page.handlers.connect();
-  assert.equal(
-    page.emitted.filter(([e]) => e.startsWith("pnds:sensor:sample")).length,
-    0,
-  );
+  assert.equal(page.emitted.filter(([e]) => e.startsWith("pnds:sensor:sample")).length, 0);
 });
 
 // ------------------------------------------------------------
@@ -611,9 +576,8 @@ const HALF_SCALE_SQUARE = (block) => {
 };
 
 const flushMicrotasks = async () => {
-  // Enough turns for the longest page chain: getUserMedia → attach →
-  // loadScript → backend pin → factory await → model.ready →
-  // beginLoop, and fetch → json → state.
+  // Enough turns for camera → Worker client → model.ready → beginLoop,
+  // and for fetch → json → state.
   for (let i = 0; i < 12; i += 1) {
     await Promise.resolve();
   }
@@ -698,10 +662,7 @@ test("a denied request is a diagnosable state, not an error", async () => {
 
   const permission = page.emitted.find(([e]) => e === "pnds:sensor:permission");
   assert.equal(permission[1].permission, "denied");
-  assert.equal(
-    page.emitted.filter(([e]) => e === "pnds:sensor:start").length,
-    0,
-  );
+  assert.equal(page.emitted.filter(([e]) => e === "pnds:sensor:start").length, 0);
   assert.match(page.note("mic").textContent, /Permission denied/);
 });
 
@@ -730,10 +691,7 @@ test("stopping the mic releases the exclusive resource; late ticks send nothing"
 
   page.emitted.length = 0;
   page.pumpIntervals();
-  assert.equal(
-    page.emitted.filter(([e]) => e === "pnds:sensor:sample").length,
-    0,
-  );
+  assert.equal(page.emitted.filter(([e]) => e === "pnds:sensor:sample").length, 0);
 });
 
 test("backgrounding releases the mic; returning re-acquires it silently", async () => {
@@ -744,9 +702,7 @@ test("backgrounding releases the mic; returning re-acquires it silently", async 
   await flushMicrotasks();
   page.pumpIntervals();
   const gumCallsBefore = page.mic.gumCalls.length;
-  const startsBefore = page.emitted.filter(
-    ([e]) => e === "pnds:sensor:start",
-  ).length;
+  const startsBefore = page.emitted.filter(([e]) => e === "pnds:sensor:start").length;
   const contexts = page.mic.contextsCreated;
   assert.equal(startsBefore, 1); // the user's enable did notify the server
 
@@ -759,10 +715,7 @@ test("backgrounding releases the mic; returning re-acquires it silently", async 
   assert.equal(page.micIntervalCount(), 0);
   page.emitted.length = 0;
   page.pumpIntervals(); // nothing ticks in the background
-  assert.equal(
-    page.emitted.filter(([e]) => e === "pnds:sensor:sample").length,
-    0,
-  );
+  assert.equal(page.emitted.filter(([e]) => e === "pnds:sensor:sample").length, 0);
 
   page.sandbox.document.visibilityState = "visible";
   page.fireDocument("visibilitychange");
@@ -775,10 +728,7 @@ test("backgrounding releases the mic; returning re-acquires it silently", async 
   // Silent: the server's record is the truth to keep — no second
   // sensorStart after the resume, so the frozen sample survives the
   // backgrounding (emitted was re-baselined before returning visible).
-  assert.equal(
-    page.emitted.filter(([e]) => e === "pnds:sensor:start").length,
-    0,
-  );
+  assert.equal(page.emitted.filter(([e]) => e === "pnds:sensor:start").length, 0);
 
   page.emitted.length = 0;
   page.pumpIntervals();
@@ -810,15 +760,11 @@ function framesFlow(page) {
 async function driveHandposeToRunning(page) {
   page.button("handpose").dispatch("click");
   await flushMicrotasks();
-
-  // Camera granted → the lazy ml5 load starts (same-origin vendor).
-  assert.equal(page.scripts.length, 1);
-  assert.equal(page.scripts[0].src, "/__pnds/shared/ml5.js");
-  page.scripts[0].onload();
-  await flushMicrotasks();
+  assert.equal(page.hp.models.length, 1);
+  assert.equal(page.scripts.length, 0, "ml5 must never load into the page");
 }
 
-test("enabling handpose runs the local pipeline: camera → vendor script → local model URLs → samples", async () => {
+test("enabling handpose passes local model URLs to the worker and sends normalized results", async () => {
   const page = loadPerformerPage();
   connectAndJoin(page);
   page.emitted.length = 0;
@@ -828,13 +774,15 @@ test("enabling handpose runs the local pipeline: camera → vendor script → lo
   // The model config: lightweight single hand, the verifiable WebGL
   // (tfjs) runtime, BOTH models from this origin's /vendor/. (The
   // config object lives in the vm realm — compare fields.)
-  assert.equal(page.hp.scriptConfigs.length, 1);
-  const config = page.hp.scriptConfigs[0];
+  assert.equal(page.hp.modelConfigs.length, 1);
+  const config = page.hp.modelConfigs[0];
   assert.equal(config.maxHands, 1);
   assert.equal(config.runtime, "tfjs");
   assert.equal(config.modelType, "lite");
   assert.equal(config.detectorModelUrl, "/vendor/handpose/detector/model.json");
   assert.equal(config.landmarkModelUrl, "/vendor/handpose/landmark/model.json");
+  assert.equal(page.hp.models[0].options.scriptSrc, "/__pnds/shared/ml5.js");
+  assert.equal(page.hp.models[0].options.workerUrl, "/handpose-worker.js");
 
   const start = page.emitted.find(([e]) => e === "pnds:sensor:start");
   assert.ok(start, "the server must be told inference began");
@@ -900,143 +848,225 @@ test("no hand is a RESULT: zero hands, empty keypoints — never unavailable", a
   assert.ok(sample[1].handpose.rateHz > 0); // inference DID run
 });
 
-test("a failed vendor script load is model-error WITH THE REASON; the preview keeps running", async () => {
-  const page = loadPerformerPage();
+test("a worker runtime load failure reports its reason while keeping the camera live", async () => {
+  const page = loadPerformerPage({ modelPending: true });
   connectAndJoin(page);
-
   page.button("handpose").dispatch("click");
   await flushMicrotasks();
-
-  assert.equal(page.scripts.length, 1);
-  page.scripts[0].onerror();
+  page.hp.models[0].reject(new Error("failed to load /__pnds/shared/ml5.js"));
   await flushMicrotasks();
 
-  // The note names what actually failed (the assets inventory said
-  // everything is present — the npm advice would be a wrong turn).
   const note = page.note("handpose").textContent;
   assert.match(note, /Model load failed/);
   assert.match(note, /__pnds\/shared\/ml5\.js/);
   assert.doesNotMatch(note, /fetch:handpose/);
-  // The camera is still attached — the preview is the evidence that
-  // the camera path works while the model path does not.
   assert.notEqual(page.elements.get("hp-video").srcObject, null);
+  assert.equal(page.hp.disposedModels, 1);
+  assert.equal(page.scripts.length, 0);
 });
 
-test("a model-init failure shows the underlying tfjs/loader reason — not the fetch:handpose advice", async () => {
+test("a worker model-init failure shows the loader reason and disposes the failed worker", async () => {
   const page = loadPerformerPage({
     modelReadyError: "HTTP 404 fetching model.json",
   });
   connectAndJoin(page);
-
   page.button("handpose").dispatch("click");
-  await flushMicrotasks();
-
-  assert.equal(page.scripts.length, 1);
-  page.scripts[0].onload();
   await flushMicrotasks();
 
   const note = page.note("handpose").textContent;
   assert.match(note, /Model load failed/);
-  assert.match(note, /HTTP 404 fetching model\.json/); // verbatim reason
-  assert.doesNotMatch(note, /fetch:handpose/); // the assets ARE there
+  assert.match(note, /HTTP 404 fetching model\.json/);
+  assert.doesNotMatch(note, /fetch:handpose/);
+  assert.equal(page.hp.disposedModels, 1);
   assert.notEqual(page.elements.get("hp-video").srcObject, null);
 });
 
-test("a page without WebGL fails fast: no script download, the GPU reason in the note", async () => {
-  const page = loadPerformerPage({ webgl: false });
+test("an unsupported worker reports an error without loading ml5 into the page", async () => {
+  const page = loadPerformerPage({ workerSupported: false });
   connectAndJoin(page);
-
   page.button("handpose").dispatch("click");
   await flushMicrotasks();
 
-  const note = page.note("handpose").textContent;
-  assert.match(note, /WebGL unavailable/);
-  assert.equal(page.scripts.length, 0); // the 4.5 MB bundle stays unsent
-  assert.equal(page.hp.scriptConfigs.length, 0);
-  assert.notEqual(page.elements.get("hp-video").srcObject, null); // camera live
+  assert.match(page.note("handpose").textContent, /cannot run hand recognition in the background/);
+  assert.equal(page.hp.models.length, 0);
+  assert.equal(page.scripts.length, 0);
+  assert.notEqual(page.elements.get("hp-video").srcObject, null);
 });
 
-test("the REAL ml5 shape (promisified factory, no p5) runs the full pipeline — the phone regression", async () => {
-  // Default fake shape: handPose(config) returns a PROMISE resolving
-  // to the instance — what ml5 1.4.0 hands back with no p5 on the
-  // page. The phone saw instance.ready === undefined here.
-  const page = loadPerformerPage();
+for (const [language, copy] of [
+  [
+    "en",
+    {
+      stop: "Stop",
+      runtime: /Loading recognition engine/,
+      model: /Loading hand model/,
+      frame: /Waiting for a camera frame/,
+      first: /Preparing first recognition/,
+      ready: /Hand recognition ready/,
+    },
+  ],
+  [
+    "zh-CN",
+    {
+      stop: "停止",
+      runtime: /加载识别引擎/,
+      model: /加载手部模型/,
+      frame: /等待摄像头画面/,
+      first: /准备首次识别/,
+      ready: /手部识别已就绪/,
+    },
+  ],
+]) {
+  test(`handpose reports each real loading stage in ${language} and remains stoppable`, async () => {
+    const page = loadPerformerPage({
+      language,
+      modelPending: true,
+      detectPending: true,
+    });
+    connectAndJoin(page);
+    page.button("handpose").dispatch("click");
+    assert.equal(page.note("handpose").getAttribute("data-phase"), "camera-starting");
+    await flushMicrotasks();
+
+    const assertStage = (phase, expected) => {
+      assert.equal(page.note("handpose").getAttribute("data-phase"), phase);
+      assert.match(page.note("handpose").textContent, expected);
+      assert.equal(page.button("handpose").textContent, copy.stop);
+      assert.equal(page.button("handpose").getAttribute("aria-pressed"), "true");
+      assert.notEqual(page.button("handpose").disabled, true);
+    };
+    assertStage("loading-runtime", copy.runtime);
+    page.hp.models[0].progress("loading-model");
+    assertStage("loading-model", copy.model);
+    assert.equal(page.emitted.filter(([e]) => e === "pnds:sensor:sample").length, 0);
+    page.hp.models[0].resolve();
+    await flushMicrotasks();
+    assertStage("waiting-frame", copy.frame);
+    page.pumpIntervals();
+    await flushMicrotasks();
+    assertStage("waiting-frame", copy.frame);
+    assert.equal(page.hp.detects, 0);
+
+    framesFlow(page);
+    page.pumpIntervals();
+    assertStage("warming-up", copy.first);
+    assert.equal(page.emitted.filter(([e]) => e === "pnds:sensor:sample").length, 0);
+    page.pumpIntervals();
+    assert.equal(page.hp.detects, 1, "the first inference must not overlap another");
+    page.hp.requests[0].resolve([]);
+    await flushMicrotasks();
+    assertStage("ready", copy.ready);
+    const sample = page.emitted.find(([e]) => e === "pnds:sensor:sample")[1];
+    assert.equal(sample.handpose.hands, 0, "zero hands is a completed recognition");
+    page.button("handpose").dispatch("click");
+    await flushMicrotasks();
+    assert.equal(page.hp.disposedModels, 1);
+    assert.equal(page.note("handpose").getAttribute("data-phase"), "off");
+  });
+}
+
+for (const stage of ["loading-runtime", "loading-model", "warming-up"]) {
+  test(`other sensors keep sending new samples while handpose is ${stage}`, async () => {
+    const page = loadPerformerPage({
+      modelPending: true,
+      detectPending: true,
+      orientationEvent: PLAIN_ORIENTATION,
+      motionEvent: function DeviceMotionEvent() {},
+    });
+    connectAndJoin(page);
+    for (const sensor of ["tilt", "motion", "mic"]) page.button(sensor).dispatch("click");
+    await flushMicrotasks();
+    const sampleAll = () => {
+      page.fireSensorEvent("deviceorientation", {
+        alpha: 12,
+        beta: 1,
+        gamma: -3,
+      });
+      page.fireSensorEvent("devicemotion", {
+        acceleration: { x: 1, y: 2, z: 3 },
+        accelerationIncludingGravity: { x: 1, y: 2, z: 9 },
+        rotationRate: { alpha: 1, beta: 2, gamma: 3 },
+      });
+      page.pumpIntervals();
+    };
+    sampleAll();
+    await flushMicrotasks();
+    const previous = new Map(
+      page.emitted
+        .filter(([event]) => event === "pnds:sensor:sample")
+        .map(([, payload]) => [payload.sensor, payload.seq]),
+    );
+    assert.equal(previous.size, 3);
+    page.button("handpose").dispatch("click");
+    await flushMicrotasks();
+    if (stage !== "loading-runtime") page.hp.models[0].progress("loading-model");
+    if (stage === "warming-up") {
+      page.hp.models[0].resolve();
+      await flushMicrotasks();
+      framesFlow(page);
+      page.pumpIntervals();
+    }
+    assert.equal(page.note("handpose").getAttribute("data-phase"), stage);
+    page.emitted.length = 0;
+    for (let i = 0; i < 3; i += 1) {
+      sampleAll();
+      await flushMicrotasks();
+    }
+    for (const sensor of ["tilt", "motion", "mic"]) {
+      const samples = page.emitted.filter(
+        ([event, payload]) => event === "pnds:sensor:sample" && payload.sensor === sensor,
+      );
+      assert.equal(samples.length, 3, `${sensor} must continue sending`);
+      assert.ok(samples.at(-1)[1].seq > previous.get(sensor));
+    }
+    assert.equal(
+      page.emitted.filter(
+        ([event, payload]) => event === "pnds:sensor:sample" && payload.sensor === "handpose",
+      ).length,
+      0,
+    );
+    page.button("handpose").dispatch("click");
+    await flushMicrotasks();
+    assert.equal(page.hp.disposedModels, 1);
+    assert.equal(page.elements.get("hp-video").srcObject, null);
+    assert.equal(page.note("handpose").getAttribute("data-phase"), "off");
+  });
+}
+
+test("stopping a loading handpose model cancels it and ignores its late progress and readiness", async () => {
+  const page = loadPerformerPage({ modelPending: true });
   connectAndJoin(page);
-
-  await driveHandposeToRunning(page);
-  // Running: the button flipped to Stop, the note is empty.
-  assert.equal(page.button("handpose").textContent, "Stop");
-  assert.equal(page.note("handpose").textContent, "");
-
-  framesFlow(page);
-  page.hp.handsResult = fakePixelHands();
-  page.pumpIntervals();
+  page.button("handpose").dispatch("click");
   await flushMicrotasks();
-
-  const sample = page.emitted.find(([e]) => e === "pnds:sensor:sample");
-  assert.ok(sample, "a sample must flow through the promise shape");
-  assert.equal(sample[1].handpose.hands, 1);
-
-  // Stop disposes the underlying model through the unwrapped instance.
+  const loading = page.hp.models[0];
   page.button("handpose").dispatch("click");
   await flushMicrotasks();
   assert.equal(page.hp.disposedModels, 1);
+  assert.equal(page.micIntervalCount(), 0);
+  assert.equal(page.elements.get("hp-video").srcObject, null);
+  loading.progress("loading-model");
+  loading.resolve();
+  await flushMicrotasks();
+  assert.equal(page.note("handpose").getAttribute("data-phase"), "off");
+  assert.equal(page.hp.detects, 0);
+  assert.equal(page.emitted.filter(([event]) => event === "pnds:sensor:start").length, 0);
 });
 
-test("the handpose backend is pinned to webgl BEFORE the model constructs (tfjs's auto-picked webgpu uploads video as blank)", async () => {
-  const page = loadPerformerPage({ tfFake: true });
+test("stopping during first inference cancels its result without becoming ready", async () => {
+  const page = loadPerformerPage({ detectPending: true });
   connectAndJoin(page);
-
-  page.button("handpose").dispatch("click");
-  await flushMicrotasks();
-
-  assert.equal(page.scripts.length, 1);
-  page.scripts[0].onload();
-  await flushMicrotasks();
-
-  // The order IS the fix: tf.ready() would auto-pick the WebGPU
-  // backend, whose video upload yields blank frames and zero hands
-  // forever — so the backend must be forced before construction.
-  assert.deepEqual(page.hp.backendCalls, ["set:webgl", "ready", "construct"]);
-
-  // And the pipeline still runs to the end.
-  framesFlow(page);
-  page.hp.handsResult = fakePixelHands();
-  page.pumpIntervals();
-  await flushMicrotasks();
-  assert.ok(page.emitted.find(([e]) => e === "pnds:sensor:sample"));
-});
-
-test("the plain instance shape (ready on the object) also works", async () => {
-  const page = loadPerformerPage({ ml5Returns: "instance" });
-  connectAndJoin(page);
-
   await driveHandposeToRunning(page);
-  assert.equal(page.button("handpose").textContent, "Stop"); // active
-  assert.equal(page.note("handpose").textContent, "");
-
   framesFlow(page);
-  page.hp.handsResult = fakePixelHands();
   page.pumpIntervals();
-  await flushMicrotasks();
-
-  const sample = page.emitted.find(([e]) => e === "pnds:sensor:sample");
-  assert.ok(sample, "a sample must flow through the instance shape");
-});
-
-test("an ml5 that returns neither shape lands in model-error with the verbatim reason", async () => {
-  const page = loadPerformerPage({ ml5Returns: "garbage" });
-  connectAndJoin(page);
-
+  assert.equal(page.note("handpose").getAttribute("data-phase"), "warming-up");
   page.button("handpose").dispatch("click");
   await flushMicrotasks();
-
-  page.scripts[0].onload();
+  page.hp.requests[0].resolve(fakePixelHands());
   await flushMicrotasks();
-
-  const note = page.note("handpose").textContent;
-  assert.match(note, /resolved without a usable instance/);
-  assert.notEqual(page.elements.get("hp-video").srcObject, null); // camera kept
+  assert.equal(page.note("handpose").getAttribute("data-phase"), "off");
+  assert.equal(page.hp.disposedModels, 1);
+  assert.equal(page.emitted.filter(([event]) => event === "pnds:sensor:sample").length, 0);
+  assert.equal(page.micIntervalCount(), 0);
 });
 
 test("stopping handpose releases loop, model and camera", async () => {
@@ -1073,9 +1103,7 @@ test("backgrounding releases the camera but keeps the model; return is silent an
   await flushMicrotasks();
 
   const gumBefore = page.mic.gumCalls.length;
-  const startsBefore = page.emitted.filter(
-    ([e]) => e === "pnds:sensor:start",
-  ).length;
+  const startsBefore = page.emitted.filter(([e]) => e === "pnds:sensor:start").length;
 
   page.sandbox.document.visibilityState = "hidden";
   page.fireDocument("visibilitychange");
@@ -1086,10 +1114,7 @@ test("backgrounding releases the camera but keeps the model; return is silent an
   page.emitted.length = 0;
   page.pumpIntervals(); // nothing ticks in the background
   await flushMicrotasks();
-  assert.equal(
-    page.emitted.filter(([e]) => e === "pnds:sensor:sample").length,
-    0,
-  );
+  assert.equal(page.emitted.filter(([e]) => e === "pnds:sensor:sample").length, 0);
 
   page.sandbox.document.visibilityState = "visible";
   page.fireDocument("visibilitychange");
@@ -1099,10 +1124,7 @@ test("backgrounding releases the camera but keeps the model; return is silent an
   assert.notEqual(page.elements.get("hp-video").srcObject, null);
   assert.equal(page.hp.disposedModels, 0); // the kept model runs
   // Silent: no second sensorStart after the resume.
-  assert.equal(
-    page.emitted.filter(([e]) => e === "pnds:sensor:start").length,
-    0,
-  );
+  assert.equal(page.emitted.filter(([e]) => e === "pnds:sensor:start").length, 0);
 
   page.pumpIntervals();
   await flushMicrotasks();
@@ -1138,10 +1160,7 @@ test("a denied camera is diagnosable and recoverable", async () => {
 
   const permission = page.emitted.find(([e]) => e === "pnds:sensor:permission");
   assert.equal(permission[1].permission, "denied");
-  assert.equal(
-    page.emitted.filter(([e]) => e === "pnds:sensor:start").length,
-    0,
-  );
+  assert.equal(page.emitted.filter(([e]) => e === "pnds:sensor:start").length, 0);
   assert.match(page.note("handpose").textContent, /Permission denied/);
 });
 
@@ -1156,10 +1175,7 @@ test("an inference fault lands in its own state with the camera still live", asy
   await flushMicrotasks();
 
   // The fault's own reason rides along with the state.
-  assert.match(
-    page.note("handpose").textContent,
-    /Inference failed: backend lost/,
-  );
+  assert.match(page.note("handpose").textContent, /Inference failed: backend lost/);
   assert.equal(page.hp.disposedModels, 1); // the suspect model is gone
   assert.notEqual(page.elements.get("hp-video").srcObject, null); // camera kept
   assert.equal(page.micIntervalCount(), 0);
@@ -1171,7 +1187,7 @@ test("a missing local asset inventory warns before anything runs", async () => {
   await flushMicrotasks();
 
   assert.match(page.note("handpose").textContent, /fetch:handpose/);
-  assert.equal(page.hp.scriptConfigs.length, 0);
+  assert.equal(page.hp.modelConfigs.length, 0);
 });
 
 test("instrument phone keeps device identity and exposes capture intent on the native controls", () => {
@@ -1189,9 +1205,7 @@ test("instrument phone keeps device identity and exposes capture intent on the n
   for (const sensor of ["tilt", "motion", "mic", "handpose"]) {
     assert.match(
       html,
-      new RegExp(
-        'aria-describedby="note-' + sensor + '" id="btn-' + sensor + '"',
-      ),
+      new RegExp('aria-describedby="note-' + sensor + '" id="btn-' + sensor + '"'),
     );
   }
 });

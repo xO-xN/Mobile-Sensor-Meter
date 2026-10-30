@@ -229,11 +229,7 @@ test("the monitor renders one card per device, keyed by id, with the entry URL",
     html.indexOf('data-device="1"') < html.indexOf('data-device="2"'),
     "devices render in id order",
   );
-  // The address is the resolved full performer URL (§15).
-  assert.match(
-    page.elements.get("address-label").textContent,
-    /https:\/\/show\.example\.org:8443\//,
-  );
+  assert.equal(page.elements.has("address-label"), false);
 });
 
 test("every freshness vocabulary renders distinctly — never a number masquerading as data", () => {
@@ -653,7 +649,6 @@ test("instrument monitor counts online devices and keeps disclosure/focus across
   );
   page.locale("zh-CN");
   assert.equal(page.elements.get("title-label").textContent, "传感器仪表");
-  assert.equal(page.elements.get("join-label").textContent, "设备加入");
   assert.equal(page.sandbox.document.getElementById("kp-toggle-1").open, true);
   assert.equal(
     page.sandbox.document.activeElement,

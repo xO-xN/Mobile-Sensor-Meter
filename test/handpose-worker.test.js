@@ -209,3 +209,23 @@ test("an invalid frame releases busy ownership so the next frame can run", async
   await h.runtime.handleMessage({ type: "detect", id: 2, frame: valid });
   assert.deepEqual(h.events.at(-1), { type: "result", id: 2, hands: [] });
 });
+
+test("confirmed Worker refuses same-origin assets outside its retired performance context", async () => {
+  const h = harness();
+  h.scope.location.href = "https://sensor.test/__pnds/run/old/handpose-worker.js";
+  await h.runtime.handleMessage(INIT);
+  assert.equal(h.events.at(-1).type, "error");
+  assert.match(h.events.at(-1).message, /performance context/);
+  assert.equal(h.calls.some(([operation]) => operation === "import"), false);
+});
+
+test("confirmed Worker initializes real model API with assets inside its immutable prefix", async () => {
+  const h = harness();
+  h.scope.location.href = "https://sensor.test/__pnds/run/old/handpose-worker.js";
+  await h.runtime.handleMessage({ ...INIT, scriptSrc: "__pnds/shared/ml5.js", config: {
+    ...INIT.config, detectorModelUrl: "vendor/detector/model.json", landmarkModelUrl: "vendor/landmark/model.json",
+  }});
+  assert.equal(h.events.at(-1).type, "ready");
+  assert.equal(h.calls.find(([operation]) => operation === "import")[1], "https://sensor.test/__pnds/run/old/__pnds/shared/ml5.js");
+  assert.equal(h.calls.find(([operation]) => operation === "model")[1].detectorModelUrl, "https://sensor.test/__pnds/run/old/vendor/detector/model.json");
+});

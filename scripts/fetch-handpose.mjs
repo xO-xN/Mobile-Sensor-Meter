@@ -121,10 +121,21 @@ async function main() {
     console.log(`[fetch:handpose] handpose/${model}: shards ${declared.join(", ")} consistent`);
   }
 
-  await writeFile(
-    path.join(HANDPOSE_DIR, "PINNED.json"),
-    JSON.stringify({ ...PINNED, fetchedAt: new Date().toISOString() }, null, 2) + "\n",
-  );
+  const pinPath = path.join(HANDPOSE_DIR, "PINNED.json");
+  let previous;
+  try {
+    previous = JSON.parse(await readFile(pinPath, "utf8"));
+  } catch (error) {
+    if (error.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
+  }
+  const { fetchedAt, ...previousPin } = previous || {};
+  // A cached verification is not a download; keep committed provenance stable
+  // so CI packages the exact same pinned model inventory as the maintenance tree.
+  if (outcomes.some(item => item.status === "fetched") ||
+      !fetchedAt || JSON.stringify(previousPin) !== JSON.stringify(PINNED)) {
+    await writeFile(pinPath,
+      JSON.stringify({ ...PINNED, fetchedAt: new Date().toISOString() }, null, 2) + "\n");
+  }
 
   const total = outcomes.reduce((sum, { bytes }) => sum + bytes, 0);
   console.log(

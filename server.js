@@ -16,6 +16,7 @@
 // - shuts down cleanly on SIGINT / SIGTERM
 
 const path = require("node:path");
+const { runtimePorts, bindingReporter } = require("./lib/runtime-ports");
 const libraries = require("./lib/shared-libraries");
 const express = libraries.requireLibrary("express");
 
@@ -66,6 +67,16 @@ if (cliOptions.help) {
 }
 
 const serverConfig = resolveServerConfig(manifest, process.env);
+const assignment = runtimePorts(process.env);
+if (assignment) {
+  serverConfig.performerPort = assignment.services.find(item => item.role === "performer").port;
+  serverConfig.monitorPort = assignment.services.find(item => item.role === "monitor").port;
+}
+const reportBinding = bindingReporter(assignment);
+function listenOptions(role) {
+  return assignment ? {fd: assignment.services.find(item => item.role === role).fd}
+    : {port: serverConfig[`${role}Port`], host: "0.0.0.0"};
+}
 const hostLanIp = resolveHostLanIp(process.env.PNDS_HOST_IP);
 
 // The one full performer URL every outward surface shares — QR, the
@@ -86,6 +97,9 @@ const performerUrl = resolvePerformerUrl(
 const app = express();
 const monitorApp = express();
 
+for (const httpApp of [app, monitorApp]) {
+  httpApp.get("/__pnds/context.js", (_request, response) => response.type("application/javascript").send(""));
+}
 libraries.attachBrowserRoutes(app);
 libraries.attachBrowserRoutes(monitorApp);
 
@@ -120,6 +134,7 @@ monitorApp.get("/__config.js", configScript("monitor"));
 // No audio: the runtime contract's "none" mode (audio.status "disabled").
 const health = new HealthTracker({
   projectId: manifest.id,
+  runtimeRunId: assignment?.runId,
   audioMode: "none",
   performerPort: serverConfig.performerPort,
   monitorPort: serverConfig.monitorPort,
@@ -152,27 +167,29 @@ const hub = new SensorHub({ staleAfterMs: resolveStaleAfterMs(process.env) });
 // Startup
 // ------------------------------------------------------------
 
-const server = app.listen(serverConfig.performerPort, "0.0.0.0", (error) => {
-  if (error) {
-    console.error(`Performer HTTP server failed on port ${serverConfig.performerPort}:`, error);
+function startHttp(httpApp, role, onListening) {
+  const server = require("node:http").createServer(httpApp);
+  server.on("error", error => {
+    reportBinding(role, server, error);
+    console.error(`${role} listener failed:`, error);
     process.exit(1);
+  });
+  try {
+    server.listen(listenOptions(role), () => {
+      reportBinding(role, server);
+      onListening();
+    });
+  } catch (error) {
+    reportBinding(role, server, error);
+    throw error;
   }
-  printRuntimeInfo();
-});
+  return server;
+}
 
-const monitorServer = monitorApp.listen(
-  serverConfig.monitorPort,
-  "0.0.0.0",
-  (error) => {
-    if (error) {
-      console.error(`Monitor HTTP server failed on port ${serverConfig.monitorPort}:`, error);
-      process.exit(1);
-    }
-    console.log(
-      `Monitor page: http://${hostLanIp}:${serverConfig.monitorPort}/`,
-    );
-  },
-);
+const server = startHttp(app, "performer", printRuntimeInfo);
+const monitorServer = startHttp(monitorApp, "monitor", () => {
+  console.log(`Monitor page: http://${hostLanIp}:${serverConfig.monitorPort}/`);
+});
 
 const io = libraries.requireLibrary("socket.io")(server, {
   cors: {

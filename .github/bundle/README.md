@@ -10,21 +10,25 @@ A PNDS utility that meters a phone's sensors live: each joined phone captures it
    unzipped folder, then **Load** it. Don't have the App yet? Download it from
    https://github.com/xO-xN/PNDS-App/releases/latest (macOS) — no Node.js
    installation is required, the App bundles everything this tool needs.
-2. Put the Mac and the phones on the same network. The camera and the
-   microphone need HTTPS: start the App's trusted HTTPS entry (a real domain
-   with a public certificate) and let the router's DNS resolve that domain to
-   this Mac, then the QR code carries the trusted `https://` address. Over
-   plain HTTP those two cards read "unsupported" — by design.
+2. Put the Mac and the phones on the same local network. For browser
+   participation, open the bottom network menu's complete public LAN HTTP URL
+   or scan its QR, then explicitly enter the displayed performance. This path
+   opens the interface and connection diagnostics; it does not authorize
+   secure-context sensor or media capture. Keep the page open.
+3. For sensor capture, use the separate existing trusted HTTPS performer
+   address on a supported device. Prepare the App's real domain, public-CA
+   certificate and local DNS resolution to this Mac, enable its HTTPS entry,
+   then open the actual trusted `https://` performer URL for this run. The
+   bottom public-entry QR remains HTTP, including when HTTPS is configured.
+4. On the supported secure page, enable the cards you need — tilt & motion,
+   microphone, hand pose. Every permission is requested inside your tap; a
+   denied or late permission is reported as it happened, never retried
+   silently. The monitor shows values only when actual samples arrive.
 
-   This tool explicitly declares `needsHttps: true` because of its sensor
-   APIs; ordinary touch and QR projects use HTTP by default. The App chooses
-   the address shared by the QR and page connection configuration.
-3. Click the App performer QR button and scan the code on
-   each phone; keep the page open.
-4. On the phone, enable the cards you need — tilt & motion, microphone, hand
-   pose. Every permission is requested inside your tap; a denied or late
-   permission is reported as it happened, never retried silently. The monitor
-   shows each device's live values.
+This tool retains `needsHttps: true` for its sensor APIs and full performer-URL
+compatibility. Neither that declaration nor saving an icon upgrades the public
+HTTP entry or grants capture permission. On that HTTP path, unavailable capture
+is reported honestly; use the trusted HTTPS path for secure-context capture.
 
 ### Readings, permissions and units
 
@@ -55,4 +59,30 @@ Runtime requirements: PNDS App v1.6.2 or a Host supporting the exact shared libr
 
 ## App performer QR migration
 
-This version removes the project QR interface and `/qr` endpoint. In PNDS App with built-in performer QR, use the bottom bar in performance mode or the Performers button in creation mode to open this project’s performer page. Standalone browsers and older Apps retain the project pages without an in-page QR entry.
+The project has no in-page QR interface or `/qr` endpoint. The performance-mode
+bottom network menu shares the public HTTP entry and requires explicit entry into
+the displayed performance. Trusted HTTPS capture uses its own configured
+performer address; this public QR does not switch to it. Creation device tests
+keep their separate Performers button and actual test address. Standalone/direct
+access remains available without an in-page QR entry.
+
+## Confirmed Host entry (0.4.5)
+
+On a compatible Host, open the complete address in the bottom network menu,
+then explicitly enter the displayed performance. Pages, Socket.IO, the actual
+hand-recognition Worker, its shared ml5 runtime and local models keep that
+performance context. A stopped or replaced performance cannot reconnect to the
+replacement through an old page. Browser recovery tokens are separated by Host
+and project; native private-origin recovery and direct standalone access remain.
+The Host can assign different internal ports without changing this public entry.
+
+The stable LAN entry is HTTP. It grants no secure-context sensor/media APIs;
+saving a Home Screen or desktop icon grants no permissions. Use the existing
+trusted HTTPS performer address on a supported physical device for capture that
+requires it. `needsHttps: true` is retained. Page preparation means the interface
+and actual server join are usable, never that capture was permitted or a sample
+was collected. Required libraries and model files are local; no WAN is needed
+for the entry or supported local operations after preparation.
+
+Device capture, actual iPhone
+permissions and signed native media behavior require separate acceptance.

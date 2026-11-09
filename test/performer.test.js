@@ -187,6 +187,8 @@ function loadPerformerPage(options = {}) {
   };
 
   const sandbox = {
+    PNDS_PARTICIPATION: options.participation,
+    isSecureContext: options.secure,
     console,
     // A clock that advances per read: the page tests assert presence
     // (a sample reached the wire), not rate limiting (that is
@@ -398,6 +400,7 @@ function loadPerformerPage(options = {}) {
 
   return {
     sandbox,
+    ioCalls,
     elements,
     storage,
     handlers,
@@ -1208,4 +1211,37 @@ test("instrument phone keeps device identity and exposes capture intent on the n
       new RegExp('aria-describedby="note-' + sensor + '" id="btn-' + sensor + '"'),
     );
   }
+});
+
+
+test("confirmed performer scopes transport and recovery without claiming capture permission", () => {
+  let prepared = 0;
+  const page = loadPerformerPage({secure: false, participation: {
+    basePath: "/__pnds/run/old/",
+    socketOptions: {path: "/__pnds/run/old/socket.io/"},
+    storageKey: key => "pnds:host-one:sensor:" + key,
+    resource: file => "http://sensor.test/__pnds/run/old/" + file,
+    reportPrepared: () => {prepared += 1;},
+  }});
+  assert.equal(page.ioCalls[0][0].path, "/__pnds/run/old/socket.io/");
+  assert.equal(prepared, 0);
+  page.storage.set("pnds:host-one:sensor:mobile-sensor-meter-token", "known-token");
+  page.handlers.connect();
+  assert.equal(page.emitted.find(([event]) => event === "join")[1].token, "known-token");
+  page.handlers.joined({id: 2, token: "accepted-token"});
+  assert.equal(prepared, 1);
+  assert.equal(page.storage.get("pnds:host-one:sensor:mobile-sensor-meter-token"), "accepted-token");
+  assert.equal(page.storage.has("mobile-sensor-meter-token"), false);
+  assert.match(page.elements.get("app").innerHTML, /HTTPS/);
+});
+
+test("insecure HTTP never reports granted capture even when browser API objects are exposed", async () => {
+  const page = loadPerformerPage({secure: false, orientationEvent: PLAIN_ORIENTATION, motionEvent: function DeviceMotionEvent() {}});
+  connectAndJoin(page);
+  page.emitted.length = 0;
+  for (const sensor of ["tilt", "motion", "mic", "handpose"]) page.button(sensor).dispatch("click");
+  await flushMicrotasks();
+  assert.equal(page.emitted.some(([event]) => event === "pnds:sensor:start"), false);
+  assert.equal(page.mic.gumCalls.length, 0);
+  assert.equal(page.emitted.filter(([event, fact]) => event === "pnds:sensor:permission" && fact.permission === "unsupported").length, 4);
 });

@@ -23,6 +23,11 @@
 // is the entry origin — zero page branches on which it is (#138).
 
 const P = window.PNDS;
+const participation = window.PNDS_PARTICIPATION;
+const resource = file => participation ? participation.resource(file) : "/" + file;
+// Private native origins already own legacy recovery; shared browser origins need a namespace.
+const tokenKey = participation && participation.basePath !== "/"
+  ? participation.storageKey(P.tokenKey) : P.tokenKey;
 const S = window.SensorLogic;
 const ML = window.MicLogic;
 const HPL = window.HandPoseLogic;
@@ -49,7 +54,7 @@ app.innerHTML =
   T.connecting +
   "</p></div>" +
   '<p class="capture-guide">' +
-  T.guide +
+  T.guide + (window.isSecureContext === false ? " " + T.httpLimits : "") +
   "</p>" +
   '<div class="perf">' +
   sensorCardHtml("tilt") +
@@ -132,17 +137,18 @@ function sensorEls(sensor) {
 
 // Same-origin connection: works over plain HTTP and under the App's
 // HTTPS entry without a single branch.
-const socket = io({ reconnection: true, reconnectionDelay: 1000 });
+const socket = io({ reconnection: true, reconnectionDelay: 1000, ...participation?.socketOptions });
 
 let deviceId = null;
 let connected = false;
 
 socket.on(P.events.joined, (data) => {
-  localStorage.setItem(P.tokenKey, data.token);
+  localStorage.setItem(tokenKey, data.token);
   deviceId = data.id;
   deviceEl.textContent = T.device + data.id + (data.recovered ? " ✓" : "");
   document.getElementById("device-number").textContent = String(data.id).padStart(2, "0");
   setConnection(T.connected);
+  participation?.reportPrepared();
 });
 
 socket.on(P.events.rejected, (data) => {
@@ -155,7 +161,7 @@ socket.on("connect", () => {
   // persisted token so the server hands back the same device id — a
   // reconnect never becomes another device.
   socket.emit(P.events.join, {
-    token: localStorage.getItem(P.tokenKey) || null,
+    token: localStorage.getItem(tokenKey) || null,
   });
   socket.emit(P.events.sensorResume);
 });
@@ -183,8 +189,8 @@ const controller = new S.SensorController(
     now: () => performance.now(),
     addEventListener: (type, fn) => window.addEventListener(type, fn),
     removeEventListener: (type, fn) => window.removeEventListener(type, fn),
-    orientationEvent: window.DeviceOrientationEvent,
-    motionEvent: window.DeviceMotionEvent,
+    orientationEvent: window.isSecureContext === false ? null : window.DeviceOrientationEvent,
+    motionEvent: window.isSecureContext === false ? null : window.DeviceMotionEvent,
   },
   {
     onState: renderStates,
@@ -279,7 +285,7 @@ const mic = new ML.MicController(
     // A non-secure context hides navigator.mediaDevices entirely — the
     // controller reports "unsupported" and the note says why (HTTPS).
     getUserMedia:
-      navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function"
+      window.isSecureContext !== false && navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function"
         ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
         : null,
     releaseStream: stopStreamTracks,
@@ -338,8 +344,8 @@ function createHandposeModel(config, onProgress) {
   if (!HPW || !HPW.supported()) throw new Error(T.handposeWorkerUnsupported);
   return HPW.createModel(config, {
     onProgress,
-    scriptSrc: "/__pnds/shared/ml5.js",
-    workerUrl: "/handpose-worker.js",
+    scriptSrc: resource("__pnds/shared/ml5.js"),
+    workerUrl: resource("handpose-worker.js"),
   });
 }
 
@@ -385,7 +391,7 @@ const handpose = new HPL.HandPoseController(
   {
     now: () => performance.now(),
     getUserMedia:
-      navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function"
+      window.isSecureContext !== false && navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function"
         ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
         : null,
     releaseStream: stopStreamTracks,
@@ -406,8 +412,8 @@ const handpose = new HPL.HandPoseController(
     },
     createModel: createHandposeModel,
     modelUrls: {
-      detectorModelUrl: "/vendor/handpose/detector/model.json",
-      landmarkModelUrl: "/vendor/handpose/landmark/model.json",
+      detectorModelUrl: resource("vendor/handpose/detector/model.json"),
+      landmarkModelUrl: resource("vendor/handpose/landmark/model.json"),
     },
     schedule: (fn, intervalMs) => {
       const id = setInterval(fn, intervalMs);
@@ -535,7 +541,7 @@ function drawHandposeOverlay(sample) {
 let handposeAssetsOk = null;
 
 if (typeof fetch === "function") {
-  fetch("/handpose/assets.json")
+  fetch(resource("handpose/assets.json"))
     .then((response) => response.json())
     .then((assets) => {
       handposeAssetsOk = Boolean(assets && assets.ok);

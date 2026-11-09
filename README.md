@@ -10,13 +10,22 @@ A PNDS score project that meters what phones expose to the browser — **tilt** 
 
 Network-only on the server: no audio engine, no SuperCollider; the server always runs with audio disabled (`none` mode). No camera; the camera and microphone are used only after the user's explicit Enable taps, processed on-device (hand keypoints, level numbers), and never recorded or played back — no raw media of any kind leaves the phone, only processed numbers. No cloud inference either: the handpose leg's ml5.js bundle and both TFJS models are served from this project's own origin (below). No hub, no cloud. Stack: Node.js, Express, Socket.IO.
 
-This work declares `scoreServer.needsHttps: true` for its secure-context sensor APIs and `supportsPerformerUrl: true` for full-URL compatibility. With the App's HTTPS switch enabled and valid entry configuration, its QR uses the trusted HTTPS address. Ordinary touch/QR projects default to HTTP. Plain HTTP remains available for diagnostics, with unavailable sensor capabilities reported on their cards; a standalone HTTPS trial is described below.
+This work retains `scoreServer.needsHttps: true` for its secure-context sensor
+APIs and `supportsPerformerUrl: true` for full-URL compatibility. The bottom
+network menu's public LAN entry and QR remain HTTP: explicitly enter the
+displayed performance to use the interface and connection diagnostics. For
+secure-context capture on a supported device, prepare the existing trusted HTTPS
+entry and open its actual performer URL for this run. HTTPS configuration and a
+saved icon do not upgrade the public HTTP entry or grant capture permissions.
+Unavailable HTTP capture is reported on the cards; the trusted HTTPS setup and
+standalone trial are described below.
 
 ### Instrument panels (v0.3.1)
 
 A numbered panel per device contains four sensor sections (four/two/one columns).
 The monitor follows App colors and language; Brutal uses square corners and hard
-shadows. Use the App performer QR button to share the current performer address.
+shadows. Use the bottom network menu for public HTTP participation; secure
+capture uses the separately configured trusted HTTPS performer address.
 Phone pages share the fog/teal surfaces, system text and monospaced readings,
 with explicit capture buttons and permission notes. Keypoint disclosures retain
 open state and keyboard focus across shape/locale changes. All measurement rules,
@@ -58,12 +67,23 @@ Device states on the monitor: `live` / `waiting for samples` / `stopped updating
 
 ### Getting Started
 
+In PNDS App, load the project and share the public HTTP entry from the bottom
+network menu; each phone explicitly enters the displayed performance. To capture
+sensors, prepare and open the separate trusted HTTPS performer URL on a supported
+device. The App's public QR remains HTTP.
+
+For standalone development only:
+
 ```sh
 npm ci --ignore-scripts
 npm start    # performer: http://<Host-LAN-IP>:6868/ · monitor: http://<Host-LAN-IP>:6869/
 ```
 
-Display the App performer QR and scan it with a phone, tap Enable on a sensor, tilt, shake — for the mic, speak (or hold a silent room and watch the REAL zeros); for the hand, show it to the camera.
+Open the appropriate entry on the phone. HTTP provides the interface and
+connection diagnostics; secure capture requires the prepared trusted HTTPS
+performer URL and the device's actual permission. There, tap Enable and tilt or
+shake; speak for the microphone (or observe real zeros in a silent room), or show
+a hand to the camera.
 
 ### The local handpose assets
 
@@ -86,7 +106,9 @@ public/vendor/handpose/PINNED.json              sources + sha256 provenance
 
 The point of this project is to prove sensor capture works in a **trusted secure context** — iOS Safari only exposes the motion sensors there, and getUserMedia (the microphone) requires a secure context everywhere. Two ways to run it that way; **neither ever installs a certificate on the phone**:
 
-**Option A — inside the PNDS App (recommended once #139–#141 are set up)**: prepare the App's trusted-HTTPS entry once (real DNS domain, public-CA certificate imported, entry switch on — see the App's `docs/zh-CN/reference/https.md`), then start this project from the App. The App's TLS gateway serves the performer page; the App QR uses that entry URL.
+**Option A — inside the PNDS App (recommended once #139–#141 are set up)**: prepare the App's trusted-HTTPS entry once (real DNS domain, public-CA certificate imported, entry switch on — see the App's `docs/zh-CN/reference/https.md`), then start this project from the App. The App's TLS gateway serves the performer page. Open that run's actual trusted
+HTTPS performer URL for capture; the bottom network menu's public-entry QR remains
+HTTP.
 
 **Option B — standalone, without the App**:
 
@@ -144,13 +166,19 @@ PNDS 仪表工程（Mobile Sensor Meter）：检验手机浏览器提供的传�
 
 服务端纯网络：无音频引擎、无 SuperCollider，始终以 `none` 模式运行。无摄像头作为数据；摄像头与麦克风只在用户主动点「启用」后使用、在手机本地处理（手部关键点、电平数值），从不录音、从不回放——任何原始媒体都不离开手机，只传处理后的数值。也无云推理：handpose 的 ml5.js 与两份 TFJS 模型全部由本工程自己的 origin 提供（见下）。不依赖 hub 或云。
 
-本工程为需要安全上下文的传感器 API 声明 `scoreServer.needsHttps: true`，并以 `supportsPerformerUrl: true` 声明完整网址兼容能力。App 的 HTTPS 开关开启且入口配置有效时，二维码使用可信 HTTPS 地址；普通触控与扫码工程默认 HTTP。纯 HTTP 仍可用于诊断，缺失的传感器能力会在卡片上如实显示；独立 HTTPS 试验见下。
+本工程保留安全上下文传感器 API 的 `scoreServer.needsHttps: true` 声明，以及完整
+网址兼容能力 `supportsPerformerUrl: true`。底栏网络菜单的公开 LAN 入口和二维码
+始终使用 HTTP；手机明确进入所显示的演出后，可使用界面和连接诊断。需要安全上下文
+采集时，在支持的设备准备原有可信 HTTPS 入口，并打开本次运行的实际 performer
+网址。HTTPS 配置和保存图标都不会把公开 HTTP 入口升级，也不授予采集权限。受限
+采集会在卡片上如实显示；可信 HTTPS 准备和独立试验见下。
 
 ### 仪器面板（v0.3.1）
 
 与其余 Utilities 共用灰绿表面、系统字体和等宽读数。每台设备以大号编号定位，
 四个传感器区在宽屏并排，中屏两列、窄屏单列。Monitor 跟随 App 主题与语言，
-Brutal 同步方角硬阴影。使用 App 演奏端二维码按钮分享当前完整演奏者地址。
+Brutal 同步方角硬阴影。底栏网络菜单提供公开 HTTP 参与入口；安全采集使用另行
+配置的可信 HTTPS performer 地址。
 手机页沿用相同语言，保留明确的启用 / 停止操作、权限提示及设备语言。
 关键点详情在状态或语言变化时保留展开与键盘位置；采集、资源释放、零值与缺失值
 语义、帧率平滑及 10 秒断开宽限规则保持原样。
@@ -191,12 +219,20 @@ Brutal 同步方角硬阴影。使用 App 演奏端二维码按钮分享当前�
 
 ### 快速开始
 
+在 PNDS App 中载入工程，从底栏网络菜单分享公开 HTTP 入口，手机明确进入所显示
+的演出。传感器采集请在支持的设备上准备并打开独立的可信 HTTPS performer 网址；
+App 公开二维码仍为 HTTP。
+
+以下固定首选端口仅供独立开发调试：
+
 ```sh
 npm ci --ignore-scripts
 npm start    # performer: http://<Host-LAN-IP>:6868/ · monitor: http://<Host-LAN-IP>:6869/
 ```
 
-用手机扫 App 演奏端二维码，点「启用」，倾斜、摇动；麦克风则对它说话（或对着安静的房间，看真实的零）；手部则把手伸到摄像头前。
+手机打开适用入口：HTTP 可使用界面与连接诊断；安全采集须使用准备好的可信
+HTTPS performer 网址，并取得设备真实许可。随后点击「启用」，倾斜、摇动；麦克风
+可对它说话（或在安静房间观察真实的零）；手部则把手伸到摄像头前。
 
 ### 手部姿态的本地资产
 
@@ -219,7 +255,8 @@ public/vendor/handpose/PINNED.json              来源与 sha256 溯源
 
 本工程的意义在于证明**可信安全上下文**里的传感器链路——iOS Safari 只在那里开放运动传感器，而 getUserMedia（麦克风）在任何浏览器都要求安全上下文。两种方式，**都不要求手机安装任何证书**：
 
-**方式 A —— 在 PNDS App 内（#139–#141 就绪后推荐）**：一次性准备好 App 的可信 HTTPS 入口（真实 DNS 域名、导入公有 CA 证书、打开入口开关——见 App 的 `docs/zh-CN/reference/https.md`），从 App 启动本工程。App 的 TLS 网关服务 performer 页面，App 二维码使用该入口 URL。
+**方式 A —— 在 PNDS App 内（#139–#141 就绪后推荐）**：一次性准备好 App 的可信 HTTPS 入口（真实 DNS 域名、导入公有 CA 证书、打开入口开关——见 App 的 `docs/zh-CN/reference/https.md`），从 App 启动本工程。App 的 TLS 网关服务 performer 页面；采集时打开本次运行的实际可信 HTTPS
+performer 网址，底栏网络菜单的公开入口二维码仍为 HTTP。
 
 **方式 B —— 独立运行，不经 App**：
 
@@ -234,7 +271,7 @@ public/vendor/handpose/PINNED.json              来源与 sha256 溯源
    PNDS_HOST_IP=<LAN-IP> PNDS_PERFORMER_URL=https://sensor.example.org:8443/ npm start
    ```
 
-4. 手机扫码：安全上下文、无证书警告、无需安装描述文件。
+4. 手机打开该 HTTPS 网址：安全上下文、无证书警告、无需安装描述文件。
 
 自签证书与私有 CA **不是**成功路径——手机不信任它们。本试验证明的是手机侧链路（权限、采集、处理、局域网 Socket.IO 送达）；它不等于 App 网关的验收——那是 App 集成验收的事。
 
@@ -271,4 +308,9 @@ Runtime requirements: PNDS App v1.6.2 or a Host supporting the exact shared libr
 
 ## App performer QR migration
 
-This version removes the project QR interface and `/qr` endpoint. In PNDS App with built-in performer QR, use the bottom bar in performance mode or the Performers button in creation mode to open this project’s performer page. Standalone browsers and older Apps retain the project pages without an in-page QR entry.
+The project has no in-page QR interface or `/qr` endpoint. Performance mode shares
+the public HTTP entry from the bottom network menu with explicit entry into the
+displayed performance. Secure capture uses the separate trusted HTTPS performer
+URL; the public QR never changes that requirement. Creation device tests retain
+their separate Performers button and actual test address. Standalone/direct
+addresses remain available without an in-page QR entry.

@@ -158,6 +158,7 @@
         performer: {
           title: "Mobile Sensor Meter",
           sub: "Device sensors",
+          httpLimits: "This HTTP entry does not grant sensor, camera or microphone permission. Use the existing trusted HTTPS entry on a supported device for secure-context capture; saving an icon does not change this limit.",
           guide: "Enable a sensor to share its readings. Keep this page open while testing.",
           connecting: "Connecting…",
           connected: "Connected",
@@ -279,6 +280,7 @@
         performer: {
           title: "传感器仪表",
           sub: "设备传感器",
+          httpLimits: "此 HTTP 入口不授予传感器、摄像头或麦克风权限。安全采集请在支持的设备使用原有可信 HTTPS 入口；保存图标不会改变限制。",
           guide: "启用传感器后共享读数；测试时请保持此页面打开。",
           connecting: "连接中…",
           connected: "已连接",

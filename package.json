@@ -1,6 +1,6 @@
 {
   "name": "mobile-sensor-meter",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "description": "PNDS score project that meters the phone's sensors: phones actively capture tilt (alpha/beta/gamma), motion (acceleration, shake), microphone level (RMS/peak/dBFS) and hand pose (local ml5.js HandPose keypoints) on-device and stream the processed values to the monitor over Socket.IO.",
   "main": "server.js",
@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server.js",
     "fetch:handpose": "node scripts/fetch-handpose.mjs",
-    "check": "node --check server.js && node --check lib/config.js && node --check lib/network.js && node --check lib/health.js && node --check lib/players.js && node --check lib/lifecycle.js && node --check lib/sensors.js && node --check lib/handpose-assets.js && node --check scripts/fetch-handpose.mjs && node --check public/shared.js && node --check public/sensor-logic.js && node --check public/mic-logic.js && node --check public/handpose-logic.js && node --check public/render.js && node --check public/theme.js && node --check public/locale.js && node --check public/performer.js && node --check public/monitor.js && node --check lib/shared-libraries.js && node --check scripts/shared-env.cjs && node --check scripts/verify-shared-browser.mjs && node --check public/handpose-worker-client.js && node --check public/handpose-worker.js && node --check scripts/verify-handpose-isolation.mjs",
+    "check": "node --check server.js && node --check lib/config.js && node --check lib/network.js && node --check lib/health.js && node --check lib/players.js && node --check lib/lifecycle.js && node --check lib/sensors.js && node --check lib/handpose-assets.js && node --check scripts/fetch-handpose.mjs && node --check public/shared.js && node --check public/sensor-logic.js && node --check public/mic-logic.js && node --check public/handpose-logic.js && node --check public/render.js && node --check public/theme.js && node --check public/locale.js && node --check public/performer.js && node --check public/monitor.js && node --check lib/shared-libraries.js && node --check scripts/shared-env.cjs && node --check scripts/verify-shared-browser.mjs && node --check public/handpose-worker-client.js && node --check public/handpose-worker.js && node --check scripts/verify-handpose-isolation.mjs && node --check lib/runtime-ports.js",
     "test": "node --test",
     "test:handpose-browser": "node scripts/verify-handpose-isolation.mjs"
   },

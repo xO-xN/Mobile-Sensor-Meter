@@ -19,6 +19,9 @@
     const url = new URL(value, scope.location.href);
     if (url.origin !== scope.location.origin)
       throw new Error("Hand tracking assets must be same-origin");
+    const base = new URL(".", scope.location.href);
+    if (!url.pathname.startsWith(base.pathname))
+      throw new Error("Hand tracking assets must stay in the confirmed performance context");
     return url.href;
   }
 
